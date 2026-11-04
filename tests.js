@@ -663,31 +663,59 @@
                 ? 'Aucune preuve isolée du clic de T46 avant le chargement.'
                 : `${ecrituresNavigationAvantChargement} écriture(s) interceptée(s) pendant le premier clic et le retour de T46 avant charger()` };
         } },
-        { code: 'T57', nom: 'PO Sprint 2 · Le formulaire demande début et durée, puis affiche la fin calculée', run: () => {
+        { code: 'T57', nom: 'PO Sprint 2 · Le formulaire affiche et calcule immédiatement la fin', run: () => {
             const vueAvant = currentView;
+            const sprintsAvant = sprints;
             const essai = avecStockageNavigateurIsole(() => {
                 try {
                     setView('sprints');
                     const form = document.querySelector('#viewContainer form.io-actions');
                     if (!form) return { erreur: 'Formulaire de planification absent.' };
-                    const champFin = form.querySelector('[name="dateFin"]');
-                    if (champFin) return { erreur: 'Le formulaire demande encore une saisie de date de fin.' };
                     const champDebut = form.querySelector('[name="dateDebut"]');
                     const champDuree = form.querySelector('[name="dureeSemaines"]');
-                    if (!champDebut || !champDuree) return { erreur: 'Champ de début ou de durée absent.' };
+                    const champFin = form.querySelector('[name="dateFin"]');
+                    const infoFin = form.querySelector('[id^="sprint-fin-info"]');
+                    if (!champDebut || !champDuree || !champFin || !infoFin) return { erreur: 'Champ de début, durée, fin ou information absent.' };
+                    if (!champFin.readOnly) return { erreur: 'Le champ Fin doit être non éditable.' };
                     champDebut.value = DATE_SPRINT_TEST.debut;
+                    champDebut.dispatchEvent(new Event('input', { bubbles: true }));
+                    const finUneSemaine = champFin.value;
+                    champDuree.value = '2';
+                    champDuree.dispatchEvent(new Event('input', { bubbles: true }));
+                    const finDeuxSemaines = champFin.value;
+                    champDuree.value = '0';
+                    champDuree.dispatchEvent(new Event('input', { bubbles: true }));
+                    const finDureeInvalide = champFin.value;
                     champDuree.value = '1';
+                    champDebut.value = '';
+                    champDebut.dispatchEvent(new Event('input', { bubbles: true }));
+                    const finSansDebut = champFin.value;
+                    const messageSansDebut = infoFin.textContent;
+                    champDebut.value = DATE_SPRINT_TEST.debut;
+                    champDebut.dispatchEvent(new Event('input', { bubbles: true }));
+                    champDuree.value = '1';
+                    champDuree.dispatchEvent(new Event('input', { bubbles: true }));
+                    const finAvantSoumission = champFin.value;
                     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
                     const contenu = document.getElementById('viewContainer').innerText;
-                    return { contenu };
+                    const sauvegarde = JSON.parse(window.localStorage.getItem(CLE) || '{}');
+                    const sprintSauvegarde = (sauvegarde.sprints || []).find(s => s.dateDebut === DATE_SPRINT_TEST.debut);
+                    return { contenu, finUneSemaine, finDeuxSemaines, finDureeInvalide, finSansDebut,
+                        messageSansDebut, finAvantSoumission, finPersistee: sprintSauvegarde && sprintSauvegarde.dateFin };
                 } finally {
+                    sprints = sprintsAvant;
                     setView(vueAvant);
                 }
             });
-            const { erreur, contenu } = essai.resultat;
+            const { erreur, contenu, finUneSemaine, finDeuxSemaines, finDureeInvalide, finSansDebut,
+                messageSansDebut, finAvantSoumission, finPersistee } = essai.resultat;
             const afficheDebutEtFin = contenu && /02\/11\/26\s*[–-]\s*08\/11\/26/.test(contenu);
-            const ok = !erreur && afficheDebutEtFin;
-            return { ok, detail: erreur || `Période affichée : ${afficheDebutEtFin ? '02/11/26 – 08/11/26' : 'non trouvée'}` };
+            const ok = !erreur && finUneSemaine === DATE_SPRINT_TEST.finSemaine
+                && finDeuxSemaines === DATE_SPRINT_TEST.finDeuxSemaines
+                && !finDureeInvalide && !finSansDebut && /Choisissez une date de début/.test(messageSansDebut)
+                && finAvantSoumission === DATE_SPRINT_TEST.finSemaine
+                && finPersistee === DATE_SPRINT_TEST.finSemaine && afficheDebutEtFin;
+            return { ok, detail: erreur || `Fin immédiate : 1 semaine ${finUneSemaine} · 2 semaines ${finDeuxSemaines} · début/durée invalides vident Fin : ${!finDureeInvalide && !finSansDebut}\nPériode affichée après création : ${afficheDebutEtFin ? '02/11/26 – 08/11/26' : 'non trouvée'} · fin persistée : ${finPersistee || 'absente'}` };
         } }
     );
 

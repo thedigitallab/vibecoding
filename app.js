@@ -1047,14 +1047,50 @@
         const suffixe = sprint ? `-${sprint.id}` : '-nouveau';
         const nom = sprint ? `<input name="nom" type="text" maxlength="80" placeholder="Nom du sprint" value="${echapperHTML(sprint.nom)}">` : '';
         const duree = sprint ? sprint.dureeSemaines : 1;
+        const fin = sprint ? sprint.dateFin : '';
+        const messageFin = fin ? 'Fin calculée automatiquement.' : 'Choisissez une date de début.';
         return `<form class="io-actions" onsubmit="${sprint ? `planifierSprintUI(${sprint.id}, event)` : 'creerSprintUI(event)'}">
             ${nom}
             <label class="fmt">Durée en semaines
-                <input name="dureeSemaines" id="sprint-duree${suffixe}" type="number" min="1" step="1" value="${duree}" required>
+                <input name="dureeSemaines" id="sprint-duree${suffixe}" type="number" min="1" step="1" value="${duree}" required oninput="actualiserFinSprint(this.form)">
             </label>
-            <label class="fmt">Début <input name="dateDebut" type="date" value="${sprint ? sprint.dateDebut : ''}"></label>
-            <button type="submit" class="btn btn-primary">${sprint ? 'Planifier' : 'Créer / planifier'}</button>
+            <label class="fmt">Début <input name="dateDebut" type="date" value="${sprint ? sprint.dateDebut : ''}" oninput="actualiserFinSprint(this.form)"></label>
+            <label class="fmt">Fin <input name="dateFin" type="date" value="${fin}" readonly aria-describedby="sprint-fin-info${suffixe}"></label>
+            <span class="fmt" id="sprint-fin-info${suffixe}" aria-live="polite">${messageFin}</span>
+            <button type="submit" class="btn btn-primary">${sprint ? 'Planifier' : 'Créer et planifier'}</button>
         </form>`;
+    }
+
+    function actualiserFinSprint(form) {
+        const champDebut = form.querySelector('[name="dateDebut"]');
+        const champDuree = form.querySelector('[name="dureeSemaines"]');
+        const champFin = form.querySelector('[name="dateFin"]');
+        const messageFin = form.querySelector('[id^="sprint-fin-info"]');
+        const debut = champDebut.value;
+        const duree = Number(champDuree.value);
+        if (!debut) {
+            champFin.value = '';
+            messageFin.textContent = 'Choisissez une date de début.';
+            return;
+        }
+        if (!dateSprintValide(debut)) {
+            champFin.value = '';
+            messageFin.textContent = 'Choisissez une date de début valide.';
+            return;
+        }
+        if (!Number.isSafeInteger(duree) || duree < 1) {
+            champFin.value = '';
+            messageFin.textContent = 'Entrez une durée entière positive.';
+            return;
+        }
+        const fin = decalerDateSprint(debut, duree * 7 - 1);
+        if (!dateSprintValide(fin)) {
+            champFin.value = '';
+            messageFin.textContent = 'La période dépasse les dates prises en charge.';
+            return;
+        }
+        champFin.value = fin;
+        messageFin.textContent = 'Fin calculée automatiquement.';
     }
 
     function afficherSprints() {

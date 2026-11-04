@@ -12,8 +12,10 @@ statuts lors du démarrage ou de la fin d’un sprint.
 Une vue dédiée permet de gérer les sprints planifiés et actif, de leur associer
 des tickets estimés et de consulter leur avancement. Lors de la planification,
 l’utilisateur choisit une date de début et une durée en semaines calendaires;
-TaskFlow calcule automatiquement la date de fin. Un seul sprint peut être actif
-à la fois pour le projet.
+TaskFlow calcule automatiquement la date de fin. Le formulaire de création et
+de planification affiche toujours « Durée en semaines », « Début » et « Fin »,
+ainsi que le bouton « Créer et planifier ». Le champ « Fin » est visible mais
+non éditable. Un seul sprint peut être actif à la fois pour le projet.
 
 Chaque ticket ne peut être membre que d’un seul sprint à la fois. Seuls les
 tickets estimés (1, 2, 3, 5, 8 ou 13 points) peuvent être ajoutés. Cette
@@ -33,12 +35,17 @@ leurs estimations au démarrage du sprint.
 1. Une vue dédiée « Sprints » est accessible depuis TaskFlow et permet de voir
    les tickets membres, leur statut, les dates et la durée du sprint, ainsi que
    le burndown lorsque le sprint est planifié.
-2. Pour créer ou planifier un sprint, l’utilisateur choisit une date de début
-   et une durée entière positive en semaines calendaires. TaskFlow calcule la
-   date de fin comme la date de début plus (7 × N) - 1 jours calendaires
-   inclusifs, l’affiche dans la période du sprint et la persiste avec celui-ci.
-   Le formulaire ne propose aucun champ de date de fin à saisir. Sans date de
-   début, le sprint reste à planifier et aucune période n’est générée.
+2. Dans les formulaires de création et de planification, « Début » et « Durée
+   en semaines » permettent de déterminer « Fin », qui reste toujours visible
+   et non éditable. À chaque saisie ou changement de la date de début ou de la
+   durée, TaskFlow recalcule et affiche immédiatement la date de fin comme la
+   date de début plus (7 × N) - 1 jours calendaires inclusifs, où N est une
+   durée entière positive en semaines. Si la date de début est absente ou si
+   la durée est invalide, « Fin » reste vide et le formulaire fournit un
+   feedback d’attente ou d’erreur adapté à la situation. À la soumission, la
+   date de fin affichée est celle persistée avec le sprint; l’utilisateur n’a
+   pas à la ressaisir. Sans date de début, le sprint reste à planifier et
+   aucune période n’est générée.
 3. Le démarrage d’un sprint planifié le rend actif. Le démarrage est refusé si
    un autre sprint est déjà actif. Il ne modifie aucun statut de ticket.
 4. L’ajout d’un ticket à un sprint est refusé si le ticket n’est pas estimé ou
@@ -80,8 +87,13 @@ leurs estimations au démarrage du sprint.
   et attend la définition de sa période; aucune date n’est inventée.
 - Pour une durée d’une semaine commençant le 02/11/2026, la date de fin affichée
   et enregistrée est le 08/11/2026; pour deux semaines, elle est le 15/11/2026.
-- Sans date de début, le sprint reste à planifier; la date de fin n’est pas
-  demandée ni générée.
+- Le champ « Fin » est visible et non éditable avant comme après la saisie du
+  début. Sans date de début, il reste vide, un feedback indique que la période
+  attend le début, et le sprint reste à planifier sans période générée.
+- Une durée invalide laisse « Fin » vide et produit un feedback d’erreur; une
+  durée entière positive ou une date de début modifiée met immédiatement à
+  jour la date affichée. La date affichée est persistée à la soumission sans
+  ressaisie.
 - Un ticket membre redevient non estimé : il est retiré de son sprint et reste
   au Backlog.
 - Une modification de ticket pendant un sprint actif affecte les points réels
