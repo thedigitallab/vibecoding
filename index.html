@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>TaskFlow</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        // Thème : choix mémorisé, sinon réglage du système
+        (function () {
+            let t = null;
+            try { t = localStorage.getItem('taskflow-theme'); } catch (e) {}
+            if (t !== 'light' && t !== 'dark') t = null;   // valeur trafiquée : on suit le système
+            if (!t) t = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.dataset.theme = t;
+        })();
+    </script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+
+    <!-- Barre latérale : projet, vues, thème -->
+    <aside class="sidebar">
+        <div class="logo">
+            <span class="logo-mark">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="3.6" rx="1.8"/><rect x="3" y="10.2" width="12" height="3.6" rx="1.8"/><rect x="3" y="16.4" width="7" height="3.6" rx="1.8"/></svg>
+            </span>
+            TaskFlow
+        </div>
+
+        <div class="side-group">
+            <div class="side-label">Projet</div>
+            <div class="project"><span class="project-ic">EC</span>Refonte de l'espace client</div>
+            <button onclick="setView('backlog')" id="btn-view-backlog" class="nav-item">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+                Backlog <span class="nav-count" id="navCount"></span>
+            </button>
+            <button onclick="setView('board')" id="btn-view-board" class="nav-item">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>
+                Kanban
+            </button>
+            <button onclick="setView('tests')" id="btn-view-tests" class="nav-item">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6.5L4.6 18.4A1.7 1.7 0 006 21h12a1.7 1.7 0 001.4-2.6L14 9.5V3M7 15h10"/></svg>
+                Auto-tests <span class="nav-badge" id="testBadge"></span>
+            </button>
+            <button onclick="setView('donnees')" id="btn-view-donnees" class="nav-item">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M7 4v13M3.5 13.5L7 17l3.5-3.5M17 20V7M13.5 10.5L17 7l3.5 3.5"/></svg>
+                Import / Export
+            </button>
+        </div>
+
+        <div class="side-foot">
+            <div id="zoneDemo"><!-- « Réinitialiser la démo », généré par JS --></div>
+            <!-- TP2 · Profil : qui utilise l'écran (c'est cette personne que « Mes tickets » affiche) -->
+            <div class="profil" id="profil"><!-- généré par JS --></div>
+            <div class="theme-switch">
+                <button id="theme-light" onclick="setTheme('light')" title="Mode clair">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+                    <span>Clair</span>
+                </button>
+                <button id="theme-dark" onclick="setTheme('dark')" title="Mode sombre">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>
+                    <span>Sombre</span>
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <div class="main">
+
+        <!-- US4 : en-tête et compteurs -->
+        <header class="topbar">
+            <div class="crumbs">
+                Refonte de l'espace client <span class="sep">/</span> <b id="crumbView">Backlog</b>
+            </div>
+            <div class="kpis">
+                <span class="kpi"><b id="kpiCount">0</b> tickets</span>
+                <span class="kpi"><b id="kpiPoints">0</b> points</span>
+                <span class="kpi" id="kpiUnestWrap"><b id="kpiUnestimated">0</b> non estimés</span>
+            </div>
+            <button onclick="openModal()" class="btn btn-primary">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                Nouveau ticket
+            </button>
+        </header>
+
+        <!-- US3 : recherche + filtres cumulatifs -->
+        <div class="filterbar">
+            <div class="search">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                <input type="text" id="searchInput" placeholder="Rechercher un titre">
+                <span class="count" id="resultCount"></span>
+            </div>
+
+            <div class="seg">
+                <button onclick="clearTypes()" id="btn-type-all" class="chip">Tous types</button>
+                <button onclick="toggleType('story')" id="btn-type-story" class="chip"><i class="dot dot-story"></i>Story</button>
+                <button onclick="toggleType('bug')" id="btn-type-bug" class="chip"><i class="dot dot-bug"></i>Bug</button>
+                <button onclick="toggleType('tache')" id="btn-type-tache" class="chip"><i class="dot dot-tache"></i>Tâche</button>
+            </div>
+
+            <div class="seg" id="prioChips">
+                <button onclick="clearPriorities()" id="btn-prio-all" class="chip">Toutes</button>
+                <!-- P1 / P2 / P3 injectés par JS -->
+            </div>
+
+            <!-- TP2 · « Mes tickets » : les tickets assignés à la personne choisie dans « Vous êtes » (barre latérale) -->
+            <div class="seg">
+                <button onclick="toggleMesTickets()" id="btn-mes-tickets" class="chip">
+                    Mes tickets
+                </button>
+            </div>
+
+            <div class="filter-right">
+                <span id="statusLabel"></span>
+                <div class="col-menu" id="columnsToggleContainer">
+                    <button onclick="toggleColumnMenu()" class="btn">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+                        Affichage
+                    </button>
+                    <div id="columnMenu" class="hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- V2 : conteneur de vue (Backlog, Kanban ou Auto-tests) -->
+        <main id="viewContainer"></main>
+    </div>
+</div>
+
+<!-- US1 : modale d'ajout / d'édition -->
+<div id="modalOverlay">
+    <div id="modalContent">
+        <form id="taskForm" novalidate>
+            <div class="modal-head">
+                <span class="crumb-chip"><span class="project-ic" style="width:14px;height:14px;font-size:8px;border-radius:4px;">EC</span>Espace client</span>
+                <span>›</span>
+                <h2 id="modalTitle">Nouveau ticket</h2>
+                <button type="button" onclick="closeModal()" class="icon-btn" title="Fermer (Échap)">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <input type="text" id="title" required minlength="3" maxlength="80" placeholder="Titre du ticket" autocomplete="off">
+                <p id="titleError" class="hidden">Le titre doit faire entre 3 et 80 caractères.</p>
+                <p class="hint">Entre 3 et 80 caractères.</p>
+            </div>
+
+            <div class="props">
+                <label class="prop">
+                    <select id="type">
+                        <option value="story">● Story</option>
+                        <option value="bug">● Bug</option>
+                        <option value="tache">● Tâche</option>
+                    </select>
+                </label>
+                <label class="prop">
+                    <select id="priorite">
+                        <option value="1">P1 · Haute</option>
+                        <option value="2" selected>P2 · Moyenne</option>
+                        <option value="3">P3 · Basse</option>
+                    </select>
+                </label>
+                <label class="prop">
+                    <select id="points">
+                        <option value="1">1 point</option>
+                        <option value="2">2 points</option>
+                        <option value="3" selected>3 points</option>
+                        <option value="5">5 points</option>
+                        <option value="8">8 points</option>
+                        <option value="13">13 points</option>
+                        <option value="null">Non estimé</option>
+                    </select>
+                </label>
+                <label class="prop">
+                    <select id="statut"><!-- options générées depuis COLONNES --></select>
+                </label>
+                <label class="prop">
+                    <select id="assigne"><!-- « Non assigné » + EQUIPE --></select>
+                </label>
+            </div>
+
+            <div class="modal-foot">
+                <p id="formError" class="hidden"></p>
+                <button type="button" onclick="closeModal()" class="btn">Annuler</button>
+                <button type="submit" id="modalSubmitBtn" class="btn btn-primary">Créer le ticket</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Message de refus (WIP, Definition of Ready) -->
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+<script src="tests.js"></script>
+</body>
+</html>
