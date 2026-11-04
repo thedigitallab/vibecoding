@@ -6,6 +6,8 @@ TaskFlow est une application de gestion de tickets en français, composée de `i
 
 L’application propose un backlog, un tableau Kanban, des auto-tests et des fonctions d’import/export. Elle comprend aussi la recherche et les filtres, la gestion des tickets et de leurs assignés, l’historique des déplacements, ainsi que la persistance locale.
 
+La skill de workflow et les agents personnalisés du projet sont définis dans `.github/skills/taskflow/` et `.github/agents/`. Pour une demande de fonctionnalité, suivre le relais `Analyste-PO` → `Testeur-QA` → `Dev-JS` → `Testeur-QA`, avec confirmation manuelle à chaque handoff.
+
 ## Règles de travail
 
 - Avant toute modification, lire les parties pertinentes de `index.html`, `styles.css`, `app.js` et `tests.js`, puis suivre les conventions et structures déjà en place. Effectuer des changements ciblés, sans toucher aux parties sans rapport avec la demande.
