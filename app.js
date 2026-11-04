@@ -73,6 +73,7 @@
     let mesTickets = false;           // TP2 · filtre « Mes tickets »
     let moi = 'Camille';              // TP2 · membre de l'équipe qui utilise l'écran
     let journal = [];                 // TP2 · 10 derniers déplacements, du plus récent au plus ancien
+    let sprints = [];                 // Sprints planifiés, actifs et terminés
 
     // Colonnes visibles du Backlog
     let visibleCols = {
@@ -113,7 +114,7 @@
     const prioLabels = { 1: 'Priorité haute', 2: 'Priorité moyenne', 3: 'Priorité basse' };
 
 
-    // V4 · Sauvegarde versionnée : { version: 3, tickets, interface, journal } dans localStorage
+    // V4 · Sauvegarde versionnée : { version: 3, tickets, interface, journal, sprints } dans localStorage
     // v1 = tableau nu · v2 = { version, tickets, interface } · v3 (TP2) = + champ assigne et journal
     // Le stockage est un paramètre : les auto-tests passent un faux localStorage.
     const CLE = 'taskflow';
@@ -129,7 +130,7 @@
         catch (e) { return false; }
     }
 
-    // → { etat, tickets, interface } ; jamais d'exception, au pire la démo
+    // → { etat, tickets, interface, journal, sprints } ; jamais d'exception, au pire la démo
     function charger(stockage = stockageNavigateur()) {
         let brut = null;
         try { brut = stockage.getItem(CLE); } catch (e) { /* lecture impossible : premier lancement */ }
@@ -146,6 +147,67 @@
     // Minuscules sans accents, pour une recherche tolérante
     function normaliserTexte(str) {
         return str.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    }
+
+    // Les dates sprint sont manipulées en UTC pour éviter les décalages de fuseau horaire.
+    function dateSprintValide(date) {
+        if (!estUneDate(date)) return false;
+        const [annee, mois, jour] = date.split('-').map(Number);
+        const d = new Date(Date.UTC(annee, mois - 1, jour));
+        return d.getUTCFullYear() === annee && d.getUTCMonth() === mois - 1 && d.getUTCDate() === jour;
+    }
+
+    function decalerDateSprint(date, jours) {
+        const [annee, mois, jour] = date.split('-').map(Number);
+        const d = new Date(Date.UTC(annee, mois - 1, jour + jours));
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    }
+
+    function normaliserSprint(brut) {
+        if (!brut || typeof brut !== 'object' || Array.isArray(brut)
+            || !Number.isSafeInteger(brut.id) || brut.id < 1
+            || !Number.isSafeInteger(brut.dureeSemaines) || brut.dureeSemaines < 1
+            || !['a_planifier', 'planifie', 'actif', 'termine'].includes(brut.statut)) return null;
+        const dateDebut = typeof brut.dateDebut === 'string' && dateSprintValide(brut.dateDebut) ? brut.dateDebut : '';
+        const dateFin = typeof brut.dateFin === 'string' && dateSprintValide(brut.dateFin) ? brut.dateFin : '';
+        if ((dateDebut || dateFin) && (!dateDebut || !dateFin || dateFin !== decalerDateSprint(dateDebut, brut.dureeSemaines * 7 - 1))) return null;
+        if ((brut.statut === 'a_planifier' && dateDebut) || (brut.statut !== 'a_planifier' && !dateDebut)) return null;
+        const ticketIds = Array.isArray(brut.ticketIds) ? [...new Set(brut.ticketIds.filter(Number.isSafeInteger))] : [];
+        const instantaneDepart = Array.isArray(brut.instantaneDepart) ? brut.instantaneDepart
+            .filter(x => x && Number.isSafeInteger(x.ticketId) && POINTS_VALIDES.includes(x.points) && COLONNES.some(c => c.id === x.statut))
+            .map(x => ({ ticketId: x.ticketId, points: x.points, statut: x.statut })) : [];
+        const evenements = Array.isArray(brut.evenements) ? brut.evenements.filter(e =>
+            e && dateSprintValide(e.date) && Number.isSafeInteger(e.ticketId)
+            && ['ajout', 'retrait', 'points', 'statut'].includes(e.type)
+            && (e.type !== 'points' || POINTS_VALIDES.includes(e.points))
+            && (e.type !== 'statut' || COLONNES.some(c => c.id === e.statut))
+        ).map(e => ({ ...e })) : [];
+        return {
+            id: brut.id, nom: typeof brut.nom === 'string' ? brut.nom.slice(0, 80) : `Sprint ${brut.id}`,
+            dureeSemaines: brut.dureeSemaines, dateDebut, dateFin, statut: brut.statut,
+            ticketIds, instantaneDepart, evenements,
+            pointsDepart: Number.isFinite(brut.pointsDepart) && brut.pointsDepart >= 0 ? brut.pointsDepart : null,
+            demarreLe: typeof brut.demarreLe === 'string' && dateSprintValide(brut.demarreLe) ? brut.demarreLe : ''
+        };
+    }
+
+    function lireSprints(brut, tickets) {
+        if (!Array.isArray(brut)) return [];
+        const connus = new Set(tickets.map(t => t.id));
+        const estimes = new Set(tickets.filter(t => POINTS_VALIDES.includes(t.points)).map(t => t.id));
+        const ids = new Set(), membres = new Set();
+        let actifPresent = false;
+        return brut.map(normaliserSprint).filter(s => {
+            if (!s || ids.has(s.id)) return false;
+            if (s.statut === 'actif' && actifPresent) return false;
+            ids.add(s.id);
+            if (s.statut === 'actif') actifPresent = true;
+            s.ticketIds = s.ticketIds.filter(id => connus.has(id)
+                && (s.statut === 'termine' || (estimes.has(id) && !membres.has(id))));
+            if (s.statut !== 'termine') s.ticketIds.forEach(id => membres.add(id));
+            s.instantaneDepart = s.instantaneDepart.filter(x => connus.has(x.ticketId));
+            return true;
+        });
     }
 
     // US3 : recherche texte + filtre type + filtre priorité (+ TP2 : « Mes tickets »), cumulés
@@ -257,6 +319,189 @@
         const termines = tickets.filter(t => t.statut === fin).length;
         return { total, termines, pctTermine: total === 0 ? 0 : Math.round(termines * 100 / total) };
     }
+
+    // Planification et cycle de vie des sprints. Les tableaux et objets reçus restent immuables.
+    function planifierSprint(liste, definition) {
+        const source = Array.isArray(liste) ? liste : [];
+        const d = definition || {};
+        const duree = d.dureeSemaines;
+        const debut = d.dateDebut;
+        const fin = d.dateFin;
+        if (!Number.isSafeInteger(d.id) || d.id < 1) return { ok: false, erreur: 'Identifiant de sprint invalide.' };
+        if (!Number.isSafeInteger(duree) || duree < 1) return { ok: false, erreur: 'La durée doit être un nombre entier de semaines supérieur à zéro.' };
+        if (!dateSprintValide(debut) || !dateSprintValide(fin)) return { ok: false, erreur: 'Choisissez les dates de début et de fin du sprint.' };
+        if (fin !== decalerDateSprint(debut, duree * 7 - 1)) return { ok: false, erreur: 'Les dates ne correspondent pas à la durée du sprint.' };
+        const existant = source.find(s => s.id === d.id);
+        if (existant && (!['a_planifier', 'planifie'].includes(existant.statut) || existant.dateDebut || existant.dateFin)) {
+            return { ok: false, erreur: 'Ce sprint ne peut plus être planifié.' };
+        }
+        const sprint = existant
+            ? { ...existant, nom: typeof d.nom === 'string' && d.nom.trim() ? d.nom.trim().slice(0, 80) : existant.nom,
+                dureeSemaines: duree, dateDebut: debut, dateFin: fin, statut: 'planifie' }
+            : { id: d.id, nom: typeof d.nom === 'string' && d.nom.trim() ? d.nom.trim().slice(0, 80) : `Sprint ${d.id}`,
+                dureeSemaines: duree, dateDebut: debut, dateFin: fin, statut: 'planifie',
+                ticketIds: [], instantaneDepart: [], evenements: [], pointsDepart: null, demarreLe: '' };
+        const sprints = existant ? source.map(s => s.id === d.id ? sprint : s) : [...source, sprint];
+        return { ok: true, sprints };
+    }
+
+    function demarrerSprint(liste, sprintId, tickets, dateEffet) {
+        const source = Array.isArray(liste) ? liste : [];
+        const sprint = source.find(s => s.id === sprintId);
+        if (!sprint) return { ok: false, erreur: 'Sprint introuvable.' };
+        if (source.some(s => s.statut === 'actif')) return { ok: false, erreur: 'Un sprint est déjà actif.' };
+        if (sprint.statut !== 'planifie' || !dateSprintValide(sprint.dateDebut) || !dateSprintValide(sprint.dateFin)) {
+            return { ok: false, erreur: 'Seul un sprint planifié avec des dates peut démarrer.' };
+        }
+        const date = dateSprintValide(dateEffet) ? dateEffet : sprint.dateDebut;
+        const parId = new Map((tickets || []).map(t => [t.id, t]));
+        const instantaneDepart = sprint.ticketIds.map(id => parId.get(id)).filter(t => t && POINTS_VALIDES.includes(t.points))
+            .map(t => ({ ticketId: t.id, points: t.points, statut: t.statut }));
+        const demarre = { ...sprint, statut: 'actif', demarreLe: date,
+            instantaneDepart, evenements: [], pointsDepart: instantaneDepart.reduce((n, t) => n + t.points, 0) };
+        return { ok: true, sprints: source.map(s => s.id === sprintId ? demarre : s) };
+    }
+
+    function ajouterTicketSprint(liste, tickets, sprintId, ticketId, dateEffet) {
+        const source = Array.isArray(liste) ? liste : [];
+        const sprint = source.find(s => s.id === sprintId);
+        if (!sprint || sprint.statut === 'termine') return { ok: false, erreur: 'Sprint introuvable ou terminé.' };
+        const ticket = (tickets || []).find(t => t.id === ticketId);
+        if (!ticket) return { ok: false, erreur: 'Ticket introuvable.' };
+        if (!POINTS_VALIDES.includes(ticket.points)) return { ok: false, erreur: 'Seuls les tickets estimés peuvent être ajoutés à un sprint.' };
+        if (source.some(s => s.statut !== 'termine' && s.ticketIds.includes(ticketId))) return { ok: false, erreur: 'Ce ticket appartient déjà à un sprint.' };
+        const date = dateSprintValide(dateEffet) ? dateEffet : (sprint.dateDebut || new Date().toISOString().slice(0, 10));
+        const maj = { ...sprint, ticketIds: [...sprint.ticketIds, ticketId] };
+        if (sprint.statut === 'actif') maj.evenements = [...sprint.evenements, { date, type: 'ajout', ticketId, points: ticket.points, statut: ticket.statut }];
+        return { ok: true, sprints: source.map(s => s.id === sprintId ? maj : s) };
+    }
+
+    function retirerTicketSprint(liste, sprintId, ticketId, dateEffet) {
+        const source = Array.isArray(liste) ? liste : [];
+        const sprint = source.find(s => s.id === sprintId);
+        if (!sprint || sprint.statut === 'termine') return { ok: false, erreur: 'Sprint introuvable ou terminé.' };
+        if (!sprint.ticketIds.includes(ticketId)) return { ok: false, erreur: 'Ce ticket ne fait pas partie du sprint.' };
+        const date = dateSprintValide(dateEffet) ? dateEffet : new Date().toISOString().slice(0, 10);
+        const maj = { ...sprint, ticketIds: sprint.ticketIds.filter(id => id !== ticketId) };
+        if (sprint.statut === 'actif') maj.evenements = [...sprint.evenements, { date, type: 'retrait', ticketId }];
+        return { ok: true, sprints: source.map(s => s.id === sprintId ? maj : s) };
+    }
+
+    function mettreAJourTacheSprint(listeSprints, tickets, ticketId, champs, dateEffet) {
+        const ancien = (tickets || []).find(t => t.id === ticketId);
+        if (!ancien) return { ok: false, erreur: 'Ticket introuvable.' };
+        const modifie = { ...ancien, ...(champs || {}) };
+        const erreur = validerTicket(modifie.titre, modifie.points) || validerProprietes(modifie);
+        if (erreur) return { ok: false, erreur };
+        if (!COLONNES.some(c => c.id === modifie.statut)) return { ok: false, erreur: 'Statut inconnu.' };
+        const proprietes = { ...(champs || {}) };
+        delete proprietes.statut;
+        let nouveauxTickets = modifierTache(tickets, ticketId, proprietes);
+        const cibleStatut = modifie.points === null ? 'backlog' : modifie.statut;
+        if (cibleStatut !== nouveauxTickets.find(t => t.id === ticketId).statut) {
+            const mouvement = deplacerTicket(nouveauxTickets, ticketId, cibleStatut);
+            if (!mouvement.ok) return { ok: false, erreur: mouvement.erreur };
+            nouveauxTickets = mouvement.tickets;
+        }
+        const date = dateSprintValide(dateEffet) ? dateEffet : new Date().toISOString().slice(0, 10);
+        const sprints = historiserChangementsSprint(listeSprints, tickets, nouveauxTickets, date);
+        return { ok: true, sprints, tickets: nouveauxTickets };
+    }
+
+    function historiserChangementsSprint(listeSprints, avant, apres, dateEffet) {
+        const date = dateSprintValide(dateEffet) ? dateEffet : new Date().toISOString().slice(0, 10);
+        return (listeSprints || []).map(sprint => {
+            if (sprint.statut === 'termine') {
+                const idsRestants = sprint.ticketIds.filter(id => apres.some(t => t.id === id));
+                return idsRestants.length === sprint.ticketIds.length ? sprint : { ...sprint, ticketIds: idsRestants };
+            }
+            let ticketIds = [...sprint.ticketIds], evenements = [...sprint.evenements];
+            for (const id of new Set([...avant.map(t => t.id), ...apres.map(t => t.id)])) {
+                const a = avant.find(t => t.id === id), b = apres.find(t => t.id === id);
+                if (!a || !ticketIds.includes(id)) continue;
+                if (!b || b.points === null) {
+                    ticketIds = ticketIds.filter(x => x !== id);
+                    if (sprint.statut === 'actif') evenements.push({ date, type: 'retrait', ticketId: id });
+                    continue;
+                }
+                if (sprint.statut !== 'actif') continue;
+                if (a.points !== b.points && POINTS_VALIDES.includes(b.points)) evenements.push({ date, type: 'points', ticketId: id, points: b.points });
+                if (a.statut !== b.statut && COLONNES.some(c => c.id === b.statut)) evenements.push({ date, type: 'statut', ticketId: id, statut: b.statut });
+            }
+            return { ...sprint, ticketIds, evenements };
+        });
+    }
+
+    function terminerSprint(liste, sprintId, tickets, dateEffet) {
+        const source = Array.isArray(liste) ? liste : [];
+        const sprint = source.find(s => s.id === sprintId);
+        if (!sprint || sprint.statut !== 'actif') return { ok: false, erreur: 'Seul un sprint actif peut être terminé.' };
+        const date = dateSprintValide(dateEffet) ? dateEffet : sprint.dateFin;
+        const suivants = source.filter(s => s.id !== sprintId && s.statut === 'planifie' && dateSprintValide(s.dateDebut))
+            .sort((a, b) => a.dateDebut.localeCompare(b.dateDebut) || a.id - b.id);
+        let sprints = source.map(s => s.id === sprintId ? { ...s, statut: 'termine', termineLe: date } : s);
+        let suivant = suivants.find(s => s.dateDebut > sprint.dateDebut
+            || (s.dateDebut === sprint.dateDebut && s.id > sprint.id));
+        if (!suivant) {
+            const id = source.reduce((max, s) => Math.max(max, s.id), 0) + 1;
+            suivant = { id, nom: `Sprint ${id}`, dureeSemaines: sprint.dureeSemaines, dateDebut: '', dateFin: '',
+                statut: 'a_planifier', ticketIds: [], instantaneDepart: [], evenements: [], pointsDepart: null, demarreLe: '' };
+            sprints = [...sprints, suivant];
+        }
+        const parId = new Map((tickets || []).map(t => [t.id, t]));
+        const reporter = sprint.ticketIds.filter(id => {
+            const t = parId.get(id);
+            return t && t.statut !== 'termine' && POINTS_VALIDES.includes(t.points);
+        });
+        if (reporter.length) sprints = sprints.map(s => s.id === suivant.id
+            ? { ...s, ticketIds: [...new Set([...s.ticketIds, ...reporter])] } : s);
+        return { ok: true, sprints };
+    }
+
+    function calculerBurndown(sprint, tickets, jusquAu) {
+        if (!sprint || !dateSprintValide(sprint.dateDebut) || !dateSprintValide(sprint.dateFin)) return { jours: [] };
+        const fin = dateSprintValide(jusquAu) ? (jusquAu < sprint.dateFin ? jusquAu : sprint.dateFin) : sprint.dateFin;
+        if (fin < sprint.dateDebut) return { jours: [] };
+        const totalJours = Math.round((Date.parse(`${sprint.dateFin}T00:00:00Z`) - Date.parse(`${sprint.dateDebut}T00:00:00Z`)) / 86400000) + 1;
+        let ideal = Number.isFinite(sprint.pointsDepart) ? sprint.pointsDepart : sprint.ticketIds.reduce((somme, id) => {
+            const t = (tickets || []).find(x => x.id === id);
+            return somme + (t && POINTS_VALIDES.includes(t.points) ? t.points : 0);
+        }, 0);
+        const membres = new Map();
+        if (sprint.statut === 'actif' || sprint.statut === 'termine') {
+            (sprint.instantaneDepart || []).forEach(x => membres.set(x.ticketId, { points: x.points, statut: x.statut }));
+        } else {
+            sprint.ticketIds.forEach(id => {
+                const t = (tickets || []).find(x => x.id === id);
+                if (t && POINTS_VALIDES.includes(t.points)) membres.set(id, { points: t.points, statut: t.statut });
+            });
+            ideal = [...membres.values()].reduce((sum, t) => sum + t.points, 0);
+        }
+        const evenements = [...(sprint.evenements || [])].sort((a, b) => a.date.localeCompare(b.date));
+        const jours = [];
+        for (let date = sprint.dateDebut; date <= fin; date = decalerDateSprint(date, 1)) {
+            evenements.filter(e => e.date === date).forEach(e => {
+                if (e.type === 'ajout') membres.set(e.ticketId, { points: e.points, statut: e.statut });
+                else if (e.type === 'retrait') membres.delete(e.ticketId);
+                else if (membres.has(e.ticketId)) {
+                    const membre = membres.get(e.ticketId);
+                    if (e.type === 'points') membre.points = e.points;
+                    if (e.type === 'statut') membre.statut = e.statut;
+                }
+            });
+            const pointsReels = [...membres.values()].reduce((sum, t) => sum + (t.statut === 'termine' ? 0 : t.points), 0);
+            const index = Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${sprint.dateDebut}T00:00:00Z`)) / 86400000);
+            const pointsIdeaux = totalJours <= 1 ? 0 : ideal * (totalJours - 1 - index) / (totalJours - 1);
+            jours.push({ date, pointsReels, pointsIdeaux });
+        }
+        return { jours };
+    }
+
+    // Les auto-tests du navigateur appellent directement ces fonctions pures.
+    Object.assign(globalThis, {
+        planifierSprint, demarrerSprint, ajouterTicketSprint, mettreAJourTacheSprint,
+        retirerTicketSprint, terminerSprint, calculerBurndown
+    });
 
     // V3 · Tableau de bord : points terminés / total, avancement, WIP, non estimés, points par colonne
     function calculerTableauDeBord(tickets) {
@@ -497,7 +742,7 @@
     function lireInterface(brut) {
         const s = brut && typeof brut === 'object' && !Array.isArray(brut) ? brut : {};
         return {
-            vue: ['backlog', 'board', 'tests', 'donnees'].includes(s.vue) ? s.vue : 'backlog',
+            vue: ['backlog', 'board', 'sprints', 'tests', 'donnees'].includes(s.vue) ? s.vue : 'backlog',
             recherche: typeof s.recherche === 'string' ? s.recherche : '',
             types: Array.isArray(s.types) ? s.types.filter(t => Object.hasOwn(typeLabels, t)) : [],
             priorites: Array.isArray(s.priorites) ? s.priorites.filter(p => [1, 2, 3].includes(p)) : [],
@@ -557,13 +802,13 @@
     //        'corrompu' (illisible, rien à sauver), 'inconnu' (version future)
     // Une sauvegarde douteuse n'est jamais affichée telle quelle, et jamais d'écran blanc.
     function lireSauvegarde(texte) {
-        const demo = (etat) => ({ etat, tickets: TICKETS_INITIAUX.map(t => ({ ...t })), interface: lireInterface(null), journal: [] });
+        const demo = (etat) => ({ etat, tickets: TICKETS_INITIAUX.map(t => ({ ...t })), interface: lireInterface(null), journal: [], sprints: [] });
         if (texte === null || texte === undefined) return demo('premier');
         let brut;
         try { brut = JSON.parse(texte); } catch (e) { return demo('corrompu'); }
 
         const enveloppe = brut && typeof brut === 'object' && !Array.isArray(brut) && Array.isArray(brut.tickets);
-        let tickets, interfaceBrute = null, journalBrut = null, etat;
+        let tickets, interfaceBrute = null, journalBrut = null, sprintsBruts = null, etat;
         if (Array.isArray(brut)) {                                   // v1 : tableau nu → v2 → v3
             tickets = migrerV2versV3(migrerV1versV2(brut));
             etat = 'migre';
@@ -575,19 +820,20 @@
             tickets = brut.tickets;
             interfaceBrute = brut.interface;
             journalBrut = brut.journal;
+            sprintsBruts = brut.sprints;
             etat = 'restaure';
         } else {
             return demo(brut && typeof brut === 'object' && typeof brut.version === 'number' && brut.version > VERSION_SAUVEGARDE ? 'inconnu' : 'corrompu');
         }
         if (tickets.every(t => t && typeof t === 'object') && verifierTableau(tickets).length === 0) {
-            return { etat, tickets: tickets.map(t => ({ ...t })), interface: lireInterface(interfaceBrute), journal: lireJournal(journalBrut), ecartes: 0 };
+            return { etat, tickets: tickets.map(t => ({ ...t })), interface: lireInterface(interfaceBrute), journal: lireJournal(journalBrut), sprints: lireSprints(sprintsBruts, tickets), ecartes: 0 };
         }
         // Sauvegarde en partie abîmée : plutôt que tout perdre, on la repasse par les règles de l'import
         // (champs vérifiés, ids en double renumérotés, WIP respecté) et on garde ce qui est valide.
         // Le journal ne correspond plus au tableau réparé : il repart de zéro.
         const r = importerTickets(tickets.map((valeurs, i) => ({ numero: i + 1, valeurs })), [], '');
         if (r.tickets.length === 0) return demo('corrompu');
-        return { etat: 'repare', tickets: r.tickets, interface: lireInterface(interfaceBrute), journal: [], ecartes: r.rejets.length };
+        return { etat: 'repare', tickets: r.tickets, interface: lireInterface(interfaceBrute), journal: [], sprints: lireSprints(sprintsBruts, r.tickets), ecartes: r.rejets.length };
     }
 
     // Import d'un texte collé ou d'un fichier : format détecté, puis mêmes règles pour CSV et JSON
@@ -768,6 +1014,148 @@
     const ICON_UPLOAD =`<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>`;
     const ICON_PLUS =`<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`;
 
+    function prochainIdSprint() {
+        return sprints.reduce((max, sprint) => Math.max(max, sprint.id), 0) + 1;
+    }
+
+    function traceBurndown(sprint) {
+        const jusquAu = sprint.statut === 'actif' ? new Date().toISOString().slice(0, 10) : sprint.dateFin;
+        const jours = calculerBurndown(sprint, tasks, jusquAu).jours;
+        if (!jours.length) return `<p class="fmt">Le burndown sera disponible après la planification des dates.</p>`;
+        const w = 720, h = 235, x0 = 48, x1 = 700, y0 = 22, y1 = 184;
+        const max = Math.max(1, ...jours.flatMap(j => [j.pointsReels, j.pointsIdeaux]));
+        const coords = (cle) => jours.map((j, i) => {
+            const x = x0 + (jours.length < 2 ? 0 : i * (x1 - x0) / (jours.length - 1));
+            const y = y1 - j[cle] * (y1 - y0) / max;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Burndown des points estimés restants" style="width:100%;height:auto;min-height:180px">
+            <line x1="${x0}" y1="${y1}" x2="${x1}" y2="${y1}" stroke="var(--border-strong)"/>
+            <line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y1}" stroke="var(--border-strong)"/>
+            <polyline points="${coords('pointsIdeaux')}" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-dasharray="6 5"/>
+            <polyline points="${coords('pointsReels')}" fill="none" stroke="var(--accent)" stroke-width="3"/>
+            ${jours.map((j, i) => {
+                const x = x0 + (jours.length < 2 ? 0 : i * (x1 - x0) / (jours.length - 1));
+                return `<text x="${x}" y="208" text-anchor="middle" fill="var(--text-3)" font-size="10">${echapperHTML(j.date.slice(5))}</text>`;
+            }).join('')}
+            <text x="8" y="${y0 + 4}" fill="var(--text-3)" font-size="10">${max} pt</text>
+            <text x="8" y="${y1}" fill="var(--text-3)" font-size="10">0 pt</text>
+        </svg><div class="io-actions"><span class="fmt"><b style="color:var(--accent)">━</b> Réel</span><span class="fmt"><b style="color:var(--text-3)">┄</b> Idéal</span></div>`;
+    }
+
+    function formulairePlanification(sprint) {
+        const suffixe = sprint ? `-${sprint.id}` : '-nouveau';
+        const nom = sprint ? `<input name="nom" type="text" maxlength="80" placeholder="Nom du sprint" value="${echapperHTML(sprint.nom)}">` : '';
+        const duree = sprint ? sprint.dureeSemaines : 1;
+        return `<form class="io-actions" onsubmit="${sprint ? `planifierSprintUI(${sprint.id}, event)` : 'creerSprintUI(event)'}">
+            ${nom}
+            <label class="fmt">Durée en semaines
+                <input name="dureeSemaines" id="sprint-duree${suffixe}" type="number" min="1" step="1" value="${duree}" required>
+            </label>
+            <label class="fmt">Début <input name="dateDebut" type="date" value="${sprint ? sprint.dateDebut : ''}" required></label>
+            <label class="fmt">Fin <input name="dateFin" type="date" value="${sprint ? sprint.dateFin : ''}" required></label>
+            <button type="submit" class="btn btn-primary">${sprint ? 'Planifier' : 'Créer et planifier'}</button>
+        </form>`;
+    }
+
+    function afficherSprints() {
+        const tries = [...sprints].sort((a, b) => {
+            if (!a.dateDebut) return b.dateDebut ? 1 : a.id - b.id;
+            if (!b.dateDebut) return -1;
+            return a.dateDebut.localeCompare(b.dateDebut) || a.id - b.id;
+        });
+        const cartes = tries.map(sprint => {
+            const membres = sprint.ticketIds.map(id => tasks.find(t => t.id === id)).filter(Boolean);
+            const disponibles = tasks.filter(t => POINTS_VALIDES.includes(t.points)
+                && !sprints.some(s => s.statut !== 'termine' && s.ticketIds.includes(t.id)));
+            const statut = { a_planifier: 'À planifier', planifie: 'Planifié', actif: 'Actif', termine: 'Terminé' }[sprint.statut];
+            const listeTickets = membres.length ? `<ul class="report">${membres.map(t => `<li>
+                <span class="ln">TES-${t.id}</span><span>${echapperHTML(t.titre)}</span>${statusTag(t)}${pointsTag(t)}
+                ${sprint.statut !== 'termine' ? `<button class="btn-xs" type="button" onclick="retirerDuSprint(${sprint.id}, ${t.id})" title="Retirer du sprint">Retirer</button>` : ''}
+            </li>`).join('')}</ul>` : `<p class="fmt">Aucun ticket membre pour l’instant.</p>`;
+            const actions = sprint.statut === 'a_planifier'
+                ? formulairePlanification(sprint)
+                : sprint.statut === 'planifie'
+                    ? `<button class="btn btn-primary" type="button" onclick="demarrerSprintUI(${sprint.id})">Démarrer</button>`
+                : sprint.statut === 'actif'
+                    ? `<button class="btn btn-primary" type="button" onclick="terminerSprintUI(${sprint.id})">Terminer le sprint</button>`
+                    : '';
+            const ajouter = sprint.statut !== 'termine' ? `<form class="io-actions" onsubmit="ajouterAuSprint(${sprint.id}, event)">
+                <label class="fmt">Ajouter un ticket estimé
+                    <select name="ticketId" required>
+                        <option value="">Choisir un ticket…</option>
+                        ${disponibles.map(t => `<option value="${t.id}">TES-${t.id} · ${echapperHTML(t.titre)} (${t.points} pts)</option>`).join('')}
+                    </select>
+                </label><button class="btn" type="submit" ${disponibles.length ? '' : 'disabled'}>Ajouter</button>
+            </form>` : '';
+            const plage = sprint.dateDebut ? `${formaterDate(sprint.dateDebut)} – ${formaterDate(sprint.dateFin)}` : 'Période à planifier';
+            return `<section class="io-card">
+                <div class="io-actions"><h2>${echapperHTML(sprint.nom)}</h2><span class="chip is-on">${statut}</span>${actions}</div>
+                <p>${plage} · ${sprint.dureeSemaines} semaine${sprint.dureeSemaines > 1 ? 's' : ''} · ${membres.length} ticket${membres.length > 1 ? 's' : ''}</p>
+                ${sprint.dateDebut ? `<div>${traceBurndown(sprint)}</div>` : ''}
+                <h3>Tickets membres</h3>${listeTickets}${ajouter}
+            </section>`;
+        }).join('');
+        viewContainer.innerHTML = `<div class="io">
+            <section class="io-card"><h2>Sprints</h2><p>Planifiez les périodes, associez des tickets estimés et suivez leur burndown sans changer leur statut Kanban.</p>
+                ${formulairePlanification(null)}</section>
+            ${cartes || '<section class="io-card"><p>Aucun sprint planifié. Créez un sprint pour commencer.</p></section>'}
+        </div>`;
+    }
+
+    function creerSprintUI(e) {
+        e.preventDefault();
+        const f = e.currentTarget;
+        const r = planifierSprint(sprints, { id: prochainIdSprint(), dureeSemaines: Number(f.querySelector('[name="dureeSemaines"]').value),
+            dateDebut: f.querySelector('[name="dateDebut"]').value, dateFin: f.querySelector('[name="dateFin"]').value });
+        if (!r.ok) return afficherMessage(r.erreur);
+        sprints = r.sprints;
+        mettreAJourEcran();
+    }
+
+    function planifierSprintUI(id, e) {
+        e.preventDefault();
+        const f = e.currentTarget;
+        const sprint = sprints.find(s => s.id === id);
+        const nom = f.querySelector('[name="nom"]');
+        const r = planifierSprint(sprints, { id, dureeSemaines: Number(f.querySelector('[name="dureeSemaines"]').value),
+            dateDebut: f.querySelector('[name="dateDebut"]').value, dateFin: f.querySelector('[name="dateFin"]').value,
+            nom: nom ? nom.value : sprint && sprint.nom });
+        if (!r.ok) return afficherMessage(r.erreur);
+        sprints = r.sprints;
+        mettreAJourEcran();
+    }
+
+    function demarrerSprintUI(id) {
+        const r = demarrerSprint(sprints, id, tasks, new Date().toISOString().slice(0, 10));
+        if (!r.ok) return afficherMessage(r.erreur);
+        sprints = r.sprints;
+        mettreAJourEcran();
+    }
+
+    function terminerSprintUI(id) {
+        const r = terminerSprint(sprints, id, tasks, new Date().toISOString().slice(0, 10));
+        if (!r.ok) return afficherMessage(r.erreur);
+        sprints = r.sprints;
+        mettreAJourEcran();
+    }
+
+    function ajouterAuSprint(id, e) {
+        e.preventDefault();
+        const ticketId = Number(e.currentTarget.querySelector('[name="ticketId"]').value);
+        const r = ajouterTicketSprint(sprints, tasks, id, ticketId, new Date().toISOString().slice(0, 10));
+        if (!r.ok) return afficherMessage(r.erreur);
+        sprints = r.sprints;
+        mettreAJourEcran();
+    }
+
+    function retirerDuSprint(sprintId, ticketId) {
+        const r = retirerTicketSprint(sprints, sprintId, ticketId, new Date().toISOString().slice(0, 10));
+        if (!r.ok) return afficherMessage(r.erreur);
+        sprints = r.sprints;
+        mettreAJourEcran();
+    }
+
     // --- Rendu principal : appelé après chaque changement d'état
     function mettreAJourEcran() {
         mettreAJourControles();
@@ -797,17 +1185,19 @@
         if (currentView === 'backlog') afficherBacklog(affichees);
         else if (currentView === 'board') afficherKanban(affichees);
         else if (currentView === 'donnees') afficherDonnees();
+        else if (currentView === 'sprints') afficherSprints();
         else afficherTests();
 
         // V4 · chaque changement passe par ce rendu : on sauvegarde ici, une seule fois
         // (sauf pendant la reprise d'un autre onglet, sinon les deux onglets se renverraient la balle)
-        if (!repriseAutreOnglet) {
+        if (initialisationTerminee && !repriseAutreOnglet) {
             const ok = sauvegarder(etatASauvegarder());
             if (!ok && sauvegardeOk) afficherMessage('Sauvegarde impossible (stockage plein ou bloqué) : exportez vos tickets avant de fermer');
             sauvegardeOk = ok;
         }
     }
 
+    let initialisationTerminee = false; // les auto-tests peuvent rendre une vue avant la reprise de la sauvegarde
     let sauvegardeOk = true;           // dernier essai de sauvegarde réussi ? (avertir une fois, pas à chaque clic)
     let repriseAutreOnglet = false;    // rendu déclenché par un autre onglet : ne pas resauvegarder
 
@@ -816,9 +1206,11 @@
     window.addEventListener('storage', (e) => {
         if (e.key !== CLE || e.newValue === null) return;
         const c = lireSauvegarde(e.newValue);
-        if (c.etat !== 'restaure' || exporterJSON(c.tickets) === exporterJSON(tasks)) return;
+        if (c.etat !== 'restaure' || (exporterJSON(c.tickets) === exporterJSON(tasks)
+            && JSON.stringify(c.sprints) === JSON.stringify(sprints))) return;
         tasks = c.tickets;
         journal = c.journal;
+        sprints = c.sprints;
         deletingId = null;
         repriseAutreOnglet = true;
         mettreAJourEcran();
@@ -841,7 +1233,8 @@
                 mesTickets,
                 moi
             },
-            journal
+            journal,
+            sprints
         };
     }
 
@@ -877,6 +1270,7 @@
 
     function reinitialiserDemo() {
         tasks = TICKETS_INITIAUX.map(t => ({ ...t }));
+        sprints = [];
         appliquerInterface(lireInterface(null));
         journal = [];
         confirmDemo = false;
@@ -893,10 +1287,12 @@
     function mettreAJourControles() {
         document.getElementById('btn-view-backlog').classList.toggle('is-on', currentView === 'backlog');
         document.getElementById('btn-view-board').classList.toggle('is-on', currentView === 'board');
+        document.getElementById('btn-view-sprints').classList.toggle('is-on', currentView === 'sprints');
+        document.querySelector('#btn-view-sprints .nav-count').textContent = sprints.length;
         document.getElementById('btn-view-tests').classList.toggle('is-on', currentView === 'tests');
         document.getElementById('btn-view-donnees').classList.toggle('is-on', currentView === 'donnees');
-        document.getElementById('crumbView').textContent = { backlog: 'Backlog', board: 'Kanban', tests: 'Auto-tests', donnees: 'Import / Export' }[currentView];
-        document.querySelector('.filterbar').style.display = currentView === 'tests' || currentView === 'donnees' ? 'none' : '';
+        document.getElementById('crumbView').textContent = { backlog: 'Backlog', board: 'Kanban', sprints: 'Sprints', tests: 'Auto-tests', donnees: 'Import / Export' }[currentView];
+        document.querySelector('.filterbar').style.display = ['tests', 'donnees', 'sprints'].includes(currentView) ? 'none' : '';
 
         document.getElementById('btn-type-all').classList.toggle('is-on', activeTypes.size === 0);
         ['story', 'bug', 'tache'].forEach(t => {
@@ -1414,6 +1810,8 @@
     }
 
     function viderTableau() {
+        sprints = historiserChangementsSprint(sprints, tasks, [], new Date().toISOString().slice(0, 10))
+            .map(s => s.statut === 'actif' ? s : { ...s, ticketIds: [] });
         tasks = [];
         isManualSort = false;
         confirmVider = false;
@@ -1456,14 +1854,17 @@
         const cible = COLONNES[COLONNES.findIndex(c => c.id === ticket.statut) + sens];
         if (!cible) return;
         const avant = tasks;
-        if (appliquerResultat(deplacerTicket(tasks, id, cible.id), cible.id)) {
-            journaliser(avant, id);
-            mettreAJourEcran();
-        }
+        const resultat = deplacerTicket(tasks, id, cible.id);
+        if (!resultat.ok) return appliquerResultat(resultat, cible.id);
+        tasks = resultat.tickets;
+        sprints = historiserChangementsSprint(sprints, avant, tasks, new Date().toISOString().slice(0, 10));
+        journaliser(avant, id);
+        mettreAJourEcran();
     }
 
     // --- Vues et thème
     function setView(view) {
+        if (!['backlog', 'board', 'sprints', 'tests', 'donnees'].includes(view)) return;
         currentView = view;
         mettreAJourEcran();
     }
@@ -1653,7 +2054,9 @@
     }
 
     function executeDelete(id) {
+        const avant = tasks;
         tasks = supprimerTache(tasks, id);
+        sprints = historiserChangementsSprint(sprints, avant, tasks, new Date().toISOString().slice(0, 10));
         deletingId = null;
         mettreAJourEcran();
     }
@@ -1690,6 +2093,7 @@
         if (nouvelleListe === tasks) return;
         const avant = tasks;
         tasks = nouvelleListe;
+        sprints = historiserChangementsSprint(sprints, avant, tasks, new Date().toISOString().slice(0, 10));
         isManualSort = true;
         journaliser(avant, id);
         mettreAJourEcran();
@@ -1821,7 +2225,18 @@
             : creerTache(tasks, { ...champs, statut: COLONNES[0].id }, new Date().toISOString().split('T')[0]);
         // Non estimé = Backlog (Definition of Ready), quel que soit le statut choisi
         const statutVoulu = points === null ? COLONNES[0].id : document.getElementById('statut').value;
-        const res = deplacerTicket(liste, id, statutVoulu);
+        let res;
+        if (editingId) {
+            const maj = mettreAJourTacheSprint(sprints, tasks, id, { ...champs, statut: statutVoulu }, new Date().toISOString().slice(0, 10));
+            if (!maj.ok) {
+                showFormError(messageRefus(maj, statutVoulu));
+                return;
+            }
+            sprints = maj.sprints;
+            res = { ok: true, tickets: maj.tickets };
+        } else {
+            res = deplacerTicket(liste, id, statutVoulu);
+        }
         if (!res.ok) {
             showFormError(messageRefus(res, statutVoulu));
             return;
@@ -1913,6 +2328,11 @@
 
     function initialiserTaskFlow() {
     // --- Lancement initial
+    document.getElementById('btn-view-board').insertAdjacentHTML('afterend',
+        `<button onclick="setView('sprints')" id="btn-view-sprints" class="nav-item">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4m8-4v4M3 9h18M8 13h3m-3 4h3m3-4h3"/></svg>
+            Sprints <span class="nav-count">${sprints.length}</span>
+        </button>`);
     document.getElementById('prioChips').insertAdjacentHTML('beforeend', [1, 2, 3].map(p =>
         `<button onclick="togglePriority(${p})" id="btn-prio-${p}" class="chip prio-${p}">${prioBars(p)}P${p}</button>`
     ).join(''));
@@ -1925,7 +2345,9 @@
     const chargement = charger();
     tasks = chargement.tickets;
     journal = chargement.journal;
+    sprints = chargement.sprints || [];
     appliquerInterface(chargement.interface);
+    initialisationTerminee = true;
     afficherZoneDemo();
     mettreAJourEcran();
     if (chargement.etat === 'corrompu') afficherMessage('Sauvegarde illisible : la démo a été rechargée');
@@ -1935,4 +2357,3 @@
         ? `Sauvegarde réparée : ${chargement.ecartes} ticket${chargement.ecartes > 1 ? 's' : ''} illisible${chargement.ecartes > 1 ? 's' : ''} écarté${chargement.ecartes > 1 ? 's' : ''}`
         : 'Sauvegarde réparée : ids en double ou règles du tableau corrigés');
     }
-

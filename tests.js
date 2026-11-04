@@ -389,6 +389,275 @@
         } }
     );
 
+    // --- Auto-tests sprint (T46 à T55), selon docs/spec.md.
+    // Contrat attendu pour Dev-JS :
+    // planifierSprint(sprints, { id, dureeSemaines, dateDebut, dateFin })
+    // demarrerSprint(sprints, sprintId, tickets, dateEffet)
+    // ajouterTicketSprint(sprints, tickets, sprintId, ticketId, dateEffet)
+    // mettreAJourTacheSprint(sprints, tickets, ticketId, champs, dateEffet)
+    // retirerTicketSprint(sprints, sprintId, ticketId, dateEffet)
+    // terminerSprint(sprints, sprintId, tickets, dateEffet)
+    // calculerBurndown(sprint, tickets, jusquAu) -> { jours: [{ date, pointsReels, pointsIdeaux }] }
+    // Chaque mutation renvoie { ok, sprints, tickets? , erreur? }; les fonctions pures
+    // reçoivent des données de test isolées. Les dates d'effet sont explicites pour être déterministes.
+    // sauvegarder/charger doivent également conserver l'état « sprints » sous la clé existante.
+    function exigerFonctionSprint(nom) {
+        const fonction = globalThis[nom];
+        if (typeof fonction !== 'function') throw new Error(`API sprint absente : ${nom}`);
+        return fonction;
+    }
+
+    function sprintsPlanifiesPourTest(...definitions) {
+        const planifier = exigerFonctionSprint('planifierSprint');
+        return definitions.reduce((sprints, d) => {
+            const r = planifier(sprints, d);
+            if (!r.ok) throw new Error(r.erreur || `Planification de TES-${d.id} refusée`);
+            return r.sprints;
+        }, []);
+    }
+
+    function exigerMutationSprint(r, operation) {
+        if (!r || !r.ok) throw new Error(r && r.erreur ? r.erreur : `${operation} refusée`);
+        return r;
+    }
+
+    const DATE_SPRINT_TEST = {
+        debut: '2026-11-02',
+        finSemaine: '2026-11-08',
+        debutSuivant: '2026-11-09',
+        finDeuxSemaines: '2026-11-15'
+    };
+
+    // Interception temporaire pour les tests qui rendent une vue : aucun clic de test
+    // ne doit écrire dans le localStorage réel, même si la garde d'initialisation manque.
+    let ecrituresNavigationAvantChargement = null;
+    function avecStockageNavigateurIsole(action) {
+        const stockageOriginal = Object.getOwnPropertyDescriptor(window, 'localStorage');
+        const valeurs = Object.create(null);
+        const stockageSimule = {
+            ecritures: [],
+            getItem: cle => Object.hasOwn(valeurs, cle) ? valeurs[cle] : null,
+            setItem: (cle, valeur) => {
+                stockageSimule.ecritures.push([cle, String(valeur)]);
+                valeurs[cle] = String(valeur);
+            }
+        };
+        try {
+            Object.defineProperty(window, 'localStorage', {
+                configurable: true,
+                enumerable: stockageOriginal ? stockageOriginal.enumerable : true,
+                writable: true,
+                value: stockageSimule
+            });
+            if (window.localStorage !== stockageSimule) throw new Error('Interception isolée de localStorage indisponible');
+            return { resultat: action(), ecritures: stockageSimule.ecritures };
+        } finally {
+            const descripteurActuel = Object.getOwnPropertyDescriptor(window, 'localStorage');
+            if (descripteurActuel && descripteurActuel.value === stockageSimule) {
+                if (stockageOriginal) Object.defineProperty(window, 'localStorage', stockageOriginal);
+                else delete window.localStorage;
+            }
+        }
+    }
+
+    AUTO_TESTS.push(
+        { code: 'T46', nom: 'PO Sprint 1 · Vue « Sprints » accessible depuis la navigation', run: () => {
+            const bouton = [...document.querySelectorAll('button')]
+                .find(el => el.textContent.trim().startsWith('Sprints'));
+            if (!bouton) {
+                return { ok: false, detail: 'Aucun bouton « Sprints » trouvé dans la navigation.' };
+            }
+            const vueAvant = currentView;
+            const essai = avecStockageNavigateurIsole(() => {
+                try {
+                    bouton.click();
+                    const contenu = document.getElementById('viewContainer').innerText;
+                    return { contenu, vueOuverte: currentView === 'sprints' };
+                } finally {
+                    setView(vueAvant);
+                }
+            });
+            if (ecrituresNavigationAvantChargement === null) {
+                ecrituresNavigationAvantChargement = essai.ecritures.length;
+            }
+            const { contenu, vueOuverte } = essai.resultat;
+            const ok = vueOuverte && /Sprints/i.test(contenu) && /Planifier/i.test(contenu);
+            return { ok, detail: ok
+                ? 'Le bouton ouvre la vue dédiée, avec un titre « Sprints » et une action de planification.'
+                : `Vue « Sprints » ouverte : ${vueOuverte} · contenu : ${contenu.slice(0, 180)}` };
+        } },
+        { code: 'T47', nom: 'PO Sprint 2 · Durée calendaire exacte et dates obligatoires', run: () => {
+            const planifier = exigerFonctionSprint('planifierSprint');
+            const valides = [
+                planifier([], { id: 4601, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine }),
+                planifier([], { id: 4602, dureeSemaines: 2, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finDeuxSemaines })
+            ];
+            const invalide = planifier([], { id: 4603, dureeSemaines: 2, dateDebut: DATE_SPRINT_TEST.debut, dateFin: '2026-11-14' });
+            const sansDates = planifier([], { id: 4604, dureeSemaines: 1, dateDebut: '', dateFin: '' });
+            const ok = valides.every(r => r.ok) && !invalide.ok && !sansDates.ok
+                && valides[0].sprints[0].dateFin === DATE_SPRINT_TEST.finSemaine
+                && valides[1].sprints[0].dateFin === DATE_SPRINT_TEST.finDeuxSemaines;
+            return { ok, detail: `1 semaine → ${valides[0].ok ? 'acceptée' : 'refusée'} (02–08/11) · 2 semaines → ${valides[1].ok ? 'acceptée' : 'refusée'} (02–15/11)\nPériode de 13 jours → ${invalide.ok ? 'acceptée à tort' : 'refusée'} · sans dates → ${sansDates.ok ? 'accepté à tort' : 'non planifié/refusé'}` };
+        } },
+        { code: 'T48', nom: 'PO Sprint 3 · Un seul sprint actif, démarrage sans changer les statuts', run: () => {
+            const demarrer = exigerFonctionSprint('demarrerSprint');
+            const sprints = sprintsPlanifiesPourTest(
+                { id: 4801, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine },
+                { id: 4802, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debutSuivant, dateFin: '2026-11-15' }
+            );
+            const tickets = [
+                { id: 481, titre: 'À faire conservé', type: 'story', priorite: 1, points: 3, statut: 'afaire' },
+                { id: 482, titre: 'En revue conservé', type: 'bug', priorite: 2, points: 5, statut: 'enrevue' }
+            ];
+            const avant = JSON.stringify(tickets);
+            const premier = demarrer(sprints, 4801, tickets, DATE_SPRINT_TEST.debut);
+            const second = premier.ok ? demarrer(premier.sprints, 4802, tickets, DATE_SPRINT_TEST.debutSuivant) : premier;
+            const actif = premier.ok && premier.sprints.find(s => s.id === 4801);
+            const ok = premier.ok && !second.ok && JSON.stringify(tickets) === avant
+                && actif && actif.statut === 'actif'
+                && tickets.map(t => t.statut).join() === 'afaire,enrevue';
+            return { ok, detail: `Démarrage du premier : ${premier.ok ? 'actif' : premier.erreur} · second démarrage : ${second.ok ? 'accepté à tort' : 'refusé'}\nStatuts avant/après : ${tickets.map(t => t.statut).join(', ')}` };
+        } },
+        { code: 'T49', nom: 'PO Sprint 4 · Seuls les tickets estimés et non déjà membres sont ajoutés', run: () => {
+            const ajouter = exigerFonctionSprint('ajouterTicketSprint');
+            const sprints = sprintsPlanifiesPourTest(
+                { id: 4901, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine },
+                { id: 4902, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debutSuivant, dateFin: '2026-11-15' }
+            );
+            const tickets = [
+                { id: 491, titre: 'Estimé', type: 'story', priorite: 1, points: 3, statut: 'backlog' },
+                { id: 492, titre: 'Non estimé', type: 'tache', priorite: 2, points: null, statut: 'backlog' }
+            ];
+            const accepte = ajouter(sprints, tickets, 4901, 491, DATE_SPRINT_TEST.debut);
+            const nonEstime = ajouter(accepte.sprints, tickets, 4901, 492, DATE_SPRINT_TEST.debut);
+            const dejaMembre = ajouter(accepte.sprints, tickets, 4902, 491, DATE_SPRINT_TEST.debut);
+            const occurrences = accepte.sprints.flatMap(s => s.ticketIds || s.tickets || [])
+                .filter(id => id === 491 || (id && id.id === 491)).length;
+            const ok = accepte.ok && !nonEstime.ok && !dejaMembre.ok && occurrences === 1;
+            return { ok, detail: `Ticket estimé : ${accepte.ok ? 'ajouté' : accepte.erreur} · non estimé : ${nonEstime.ok ? 'accepté à tort' : 'refusé'} · déjà membre : ${dejaMembre.ok ? 'accepté à tort' : 'refusé'} · appartenances du ticket 491 : ${occurrences}` };
+        } },
+        { code: 'T50', nom: 'PO Sprint 5 · Redevenir non estimé retire du sprint et reste au Backlog', run: () => {
+            const ajouter = exigerFonctionSprint('ajouterTicketSprint');
+            const maj = exigerFonctionSprint('mettreAJourTacheSprint');
+            const sprints = sprintsPlanifiesPourTest({ id: 5001, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine });
+            const tickets = [{ id: 501, titre: 'Estimation retirée', type: 'story', priorite: 1, points: 3, statut: 'afaire' }];
+            const membre = exigerMutationSprint(ajouter(sprints, tickets, 5001, 501, DATE_SPRINT_TEST.debut), 'Ajout au sprint');
+            const modifie = exigerMutationSprint(maj(membre.sprints, tickets, 501, { points: null }, '2026-11-04'), 'Modification du ticket');
+            const ticket = modifie.tickets.find(t => t.id === 501);
+            const sprint = modifie.sprints.find(s => s.id === 5001);
+            const appartenance = sprint && (sprint.ticketIds || sprint.tickets || []);
+            const estMembre = Array.isArray(appartenance) && appartenance.some(x => x === 501 || (x && x.id === 501));
+            const ok = ticket && ticket.points === null && ticket.statut === 'backlog' && !estMembre;
+            return { ok, detail: `Après retrait de l’estimation : points ${ticket && ticket.points}, statut ${ticket && ticket.statut}, encore membre : ${!!estMembre}` };
+        } },
+        { code: 'T51', nom: 'PO Sprint 6 · Fin et report des seuls tickets inachevés, sans changement de statut', run: () => {
+            const ajouter = exigerFonctionSprint('ajouterTicketSprint');
+            const demarrer = exigerFonctionSprint('demarrerSprint');
+            const terminer = exigerFonctionSprint('terminerSprint');
+            let sprints = sprintsPlanifiesPourTest(
+                { id: 5101, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine },
+                { id: 5102, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debutSuivant, dateFin: '2026-11-15' }
+            );
+            const tickets = [
+                { id: 511, titre: 'À reporter', type: 'story', priorite: 1, points: 5, statut: 'afaire' },
+                { id: 512, titre: 'Terminé', type: 'bug', priorite: 2, points: 3, statut: 'termine' }
+            ];
+            sprints = ajouter(sprints, tickets, 5101, 511, DATE_SPRINT_TEST.debut).sprints;
+            sprints = ajouter(sprints, tickets, 5101, 512, DATE_SPRINT_TEST.debut).sprints;
+            sprints = demarrer(sprints, 5101, tickets, DATE_SPRINT_TEST.debut).sprints;
+            const avant = JSON.stringify(tickets.map(t => [t.id, t.statut]));
+            const fin = terminer(sprints, 5101, tickets, DATE_SPRINT_TEST.finSemaine);
+            const suivant = fin.ok && fin.sprints.find(s => s.id === 5102);
+            const membres = suivant && (suivant.ticketIds || suivant.tickets || []);
+            const ids = Array.isArray(membres) ? membres.map(x => typeof x === 'object' ? x.id : x) : [];
+            const ok = fin.ok && ids.includes(511) && !ids.includes(512)
+                && JSON.stringify(tickets.map(t => [t.id, t.statut])) === avant
+                && tickets[0].statut === 'afaire' && tickets[1].statut === 'termine';
+            return { ok, detail: `Sprint suivant : ${ids.join(', ') || 'aucun membre'} · statuts inchangés : ${tickets.map(t => `${t.id}=${t.statut}`).join(', ')}` };
+        } },
+        { code: 'T52', nom: 'PO Sprint 7 · Sans sprint suivant, création sans dates et durée conservée', run: () => {
+            const ajouter = exigerFonctionSprint('ajouterTicketSprint');
+            const demarrer = exigerFonctionSprint('demarrerSprint');
+            const terminer = exigerFonctionSprint('terminerSprint');
+            let sprints = sprintsPlanifiesPourTest({ id: 5201, dureeSemaines: 2, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finDeuxSemaines });
+            const tickets = [{ id: 521, titre: 'À reporter', type: 'story', priorite: 1, points: 2, statut: 'afaire' }];
+            sprints = ajouter(sprints, tickets, 5201, 521, DATE_SPRINT_TEST.debut).sprints;
+            sprints = demarrer(sprints, 5201, tickets, DATE_SPRINT_TEST.debut).sprints;
+            const fin = terminer(sprints, 5201, tickets, DATE_SPRINT_TEST.finDeuxSemaines);
+            const suivant = fin.ok && fin.sprints.find(s => s.id !== 5201 && (s.ticketIds || s.tickets || []).length);
+            const ok = !!suivant && suivant.dureeSemaines === 2
+                && !suivant.dateDebut && !suivant.dateFin
+                && (suivant.ticketIds || suivant.tickets || []).some(x => x === 521 || (x && x.id === 521));
+            return { ok, detail: suivant
+                ? `Sprint créé : durée ${suivant.dureeSemaines}, dates ${JSON.stringify([suivant.dateDebut, suivant.dateFin])}, membres ${JSON.stringify(suivant.ticketIds || suivant.tickets)}`
+                : 'Aucun sprint suivant contenant le ticket reporté.' };
+        } },
+        { code: 'T53', nom: 'PO Sprint 8 · Tickets, sprints et appartenances persistent au rechargement', run: () => {
+            const stockage = fauxStockage();
+            const sprints = sprintsPlanifiesPourTest({ id: 5301, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine });
+            const tickets = TICKETS_INITIAUX.map(t => ({ ...t }));
+            const ajout = exigerMutationSprint(exigerFonctionSprint('ajouterTicketSprint')(sprints, tickets, 5301, 1, DATE_SPRINT_TEST.debut), 'Ajout au sprint');
+            const enregistre = sauvegarder({ tickets, sprints: ajout.sprints, interface: lireInterface(null), journal: [] }, stockage);
+            const recharge = charger(stockage);
+            const ok = enregistre && exporterJSON(recharge.tickets) === exporterJSON(tickets)
+                && exporterJSON(recharge.sprints) === exporterJSON(ajout.sprints)
+                && recharge.tickets.length === TICKETS_INITIAUX.length;
+            return { ok, detail: `Sauvegarde : ${enregistre} · tickets rechargés : ${recharge.tickets.length}/${TICKETS_INITIAUX.length} · sprints rechargés : ${Array.isArray(recharge.sprints) ? recharge.sprints.length : 'absents'}` };
+        } },
+        { code: 'T54', nom: 'PO Sprint 9 · Burndown vide : sept jours à zéro, valeurs finies', run: () => {
+            const demarrer = exigerFonctionSprint('demarrerSprint');
+            const sprints = sprintsPlanifiesPourTest({ id: 5401, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine });
+            const actif = demarrer(sprints, 5401, [], DATE_SPRINT_TEST.debut);
+            const burndown = exigerFonctionSprint('calculerBurndown')(actif.sprints[0], [], DATE_SPRINT_TEST.finSemaine);
+            const jours = burndown.jours || [];
+            const ok = actif.ok && jours.length === 7 && jours.every(j =>
+                Number.isFinite(j.pointsReels) && Number.isFinite(j.pointsIdeaux)
+                && j.pointsReels === 0 && j.pointsIdeaux === 0);
+            return { ok, detail: `${jours.length} jours · valeurs réelles : ${jours.map(j => j.pointsReels).join(', ') || 'aucune'} · idéal fini : ${jours.every(j => Number.isFinite(j.pointsIdeaux))}` };
+        } },
+        { code: 'T55', nom: 'PO Sprint 10 · Burndown réel daté, ligne idéale figée au démarrage', run: () => {
+            const planifier = exigerFonctionSprint('planifierSprint');
+            const ajouter = exigerFonctionSprint('ajouterTicketSprint');
+            const demarrer = exigerFonctionSprint('demarrerSprint');
+            const maj = exigerFonctionSprint('mettreAJourTacheSprint');
+            const retirer = exigerFonctionSprint('retirerTicketSprint');
+            const calculer = exigerFonctionSprint('calculerBurndown');
+            const ticketsInitiaux = [
+                { id: 551, titre: 'Membre A', type: 'story', priorite: 1, points: 5, statut: 'afaire' },
+                { id: 552, titre: 'Membre B', type: 'bug', priorite: 2, points: 3, statut: 'enrevue' },
+                { id: 553, titre: 'Ajout actif', type: 'tache', priorite: 3, points: 2, statut: 'backlog' }
+            ];
+            let sprints = sprintsPlanifiesPourTest({ id: 5501, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine });
+            sprints = ajouter(sprints, ticketsInitiaux, 5501, 551, DATE_SPRINT_TEST.debut).sprints;
+            sprints = ajouter(sprints, ticketsInitiaux, 5501, 552, DATE_SPRINT_TEST.debut).sprints;
+            sprints = demarrer(sprints, 5501, ticketsInitiaux, DATE_SPRINT_TEST.debut).sprints;
+            const ligneIdealeInitiale = calculer(sprints[0], ticketsInitiaux, DATE_SPRINT_TEST.finSemaine).jours.map(j => j.pointsIdeaux);
+            let tickets = ticketsInitiaux;
+            let r = maj(sprints, tickets, 552, { statut: 'termine' }, '2026-11-03');
+            tickets = r.tickets; sprints = r.sprints;
+            r = ajouter(sprints, tickets, 5501, 553, '2026-11-04');
+            tickets = r.tickets || tickets; sprints = r.sprints;
+            r = maj(sprints, tickets, 551, { points: 8 }, '2026-11-05');
+            tickets = r.tickets; sprints = r.sprints;
+            r = retirer(sprints, 5501, 551, '2026-11-06');
+            sprints = r.sprints;
+            const apres = calculer(sprints[0], tickets, DATE_SPRINT_TEST.finSemaine).jours;
+            const reelsAttendus = [8, 5, 7, 10, 2, 2, 2];
+            const ok = apres.length === 7
+                && apres.every((j, i) => j.pointsReels === reelsAttendus[i])
+                && JSON.stringify(apres.map(j => j.pointsIdeaux)) === JSON.stringify(ligneIdealeInitiale)
+                && ligneIdealeInitiale[0] === 8 && ligneIdealeInitiale[6] === 0
+                && tickets.map(t => t.statut).join() === 'afaire,termine,backlog';
+            return { ok, detail: `Points réels par jour : ${apres.map(j => j.pointsReels).join(', ')} (attendu ${reelsAttendus.join(', ')})\nLigne idéale inchangée : ${JSON.stringify(apres.map(j => j.pointsIdeaux)) === JSON.stringify(ligneIdealeInitiale)} · statuts après changements : ${tickets.map(t => t.statut).join(', ')}` };
+        } },
+        { code: 'T56', nom: 'Garde d’initialisation · le clic de T46 ne sauvegarde pas avant charger()', run: () => {
+            const ok = ecrituresNavigationAvantChargement === 0;
+            return { ok, detail: ecrituresNavigationAvantChargement === null
+                ? 'Aucune preuve isolée du clic de T46 avant le chargement.'
+                : `${ecrituresNavigationAvantChargement} écriture(s) interceptée(s) pendant le premier clic et le retour de T46 avant charger()` };
+        } }
+    );
+
     // Lance les tests ; une exception compte comme un échec, sans arrêter les autres
     function lancerTests(tests) {
         return tests.map(t => {
