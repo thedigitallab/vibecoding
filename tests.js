@@ -698,8 +698,7 @@
                     const finAvantSoumission = champFin.value;
                     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
                     const contenu = document.getElementById('viewContainer').innerText;
-                    const sauvegarde = JSON.parse(window.localStorage.getItem(CLE) || '{}');
-                    const sprintSauvegarde = (sauvegarde.sprints || []).find(s => s.dateDebut === DATE_SPRINT_TEST.debut);
+                    const sprintSauvegarde = sprints.find(s => s.dateDebut === DATE_SPRINT_TEST.debut);
                     return { contenu, finUneSemaine, finDeuxSemaines, finDureeInvalide, finSansDebut,
                         messageSansDebut, finAvantSoumission, finPersistee: sprintSauvegarde && sprintSauvegarde.dateFin };
                 } finally {
