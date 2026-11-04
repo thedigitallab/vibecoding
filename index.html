@@ -42,6 +42,10 @@
                 <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>
                 Kanban
             </button>
+            <button onclick="setView('sprints')" id="btn-view-sprints" class="nav-item">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3.2-6.9M21 4v5h-5M8 12.5l2.5 2.5L16 9.5"/></svg>
+                Sprints <span class="nav-count" id="navSprints"></span>
+            </button>
             <button onclick="setView('tests')" id="btn-view-tests" class="nav-item">
                 <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6.5L4.6 18.4A1.7 1.7 0 006 21h12a1.7 1.7 0 001.4-2.6L14 9.5V3M7 15h10"/></svg>
                 Auto-tests <span class="nav-badge" id="testBadge"></span>
@@ -114,6 +118,11 @@
                 </button>
             </div>
 
+            <!-- Sprints · « Sprint actif » : seulement les tickets du sprint en cours (affiché s'il y en a un) -->
+            <div class="seg" id="segSprintActif" style="display: none">
+                <button onclick="toggleSprintActif()" id="btn-sprint-actif" class="chip">Sprint actif</button>
+            </div>
+
             <div class="filter-right">
                 <span id="statusLabel"></span>
                 <div class="col-menu" id="columnsToggleContainer">
@@ -181,6 +190,9 @@
                 </label>
                 <label class="prop">
                     <select id="assigne"><!-- « Non assigné » + EQUIPE --></select>
+                </label>
+                <label class="prop">
+                    <select id="sprint"><!-- « Aucun sprint » + sprints ouverts --></select>
                 </label>
             </div>
 

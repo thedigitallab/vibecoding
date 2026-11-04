@@ -1,117 +1,94 @@
-# Spécification — gestion de sprint
+# Spécification — gestion de sprint (Scrum)
 
 ## Besoin
 
-TaskFlow ne permet actuellement que de gérer un backlog et un tableau Kanban.
-L’utilisateur doit pouvoir planifier et suivre des sprints pour l’unique projet
-de l’application, sans changer les règles existantes des tickets ni leurs
-statuts lors du démarrage ou de la fin d’un sprint.
+TaskFlow gère un backlog et un tableau Kanban. L'équipe doit pouvoir planifier
+son travail en sprints, comme dans les outils du marché (Jira, Linear) : créer
+un sprint avec ses dates et sa capacité, y glisser des tickets, suivre le
+burndown, puis clôturer le sprint.
 
-## Résultat attendu
+## Données
 
-Une vue dédiée permet de gérer les sprints planifiés et actif, de leur associer
-des tickets estimés et de consulter leur avancement. Lors de la planification,
-l’utilisateur choisit une date de début et une durée en semaines calendaires;
-TaskFlow calcule automatiquement la date de fin. Le formulaire de création et
-de planification affiche toujours « Durée en semaines », « Début » et « Fin »,
-ainsi que le bouton « Créer et planifier ». Le champ « Fin » est visible mais
-non éditable. Un seul sprint peut être actif à la fois pour le projet.
+- `sprints[]` : `{ id, nom, objectif, debut, fin, capacite, statut, pointsDepart,
+  releves, demarreLe, clotureLe, pointsTermines }`.
+- `ticket.sprintId` : identifiant du sprint du ticket ; absent ou `null` = le
+  ticket est dans le Backlog. Un ticket n'a qu'un seul `sprintId`, il ne peut donc
+  appartenir qu'à un seul sprint à la fois.
+- Statuts d'un sprint : **Futur → Actif → Clôturé**. Un seul sprint actif à la fois.
+- Le format d'export JSON et CSV des tickets ne change pas : `sprintId` n'y figure
+  pas, et un ticket importé arrive dans le Backlog.
 
-Chaque ticket ne peut être membre que d’un seul sprint à la fois. Seuls les
-tickets estimés (1, 2, 3, 5, 8 ou 13 points) peuvent être ajoutés. Cette
-appartenance est indépendante du statut Kanban : ajouter, démarrer ou terminer
-un sprint ne déplace pas les tickets et ne modifie pas leur statut.
+## Fonctionnalités
 
-La vue présente un burndown en SVG des points estimés restants, par jour, avec
-une courbe réelle et une ligne idéale. Pour chaque jour écoulé de la période du
-sprint, la courbe réelle représente la somme des points des tickets membres qui
-ne sont pas « Terminé » à la fin de la journée. Les modifications d'estimation
-ou d'appartenance pendant un sprint actif affectent la courbe réelle à compter
-de leur date d'effet. La ligne idéale reste calculée à partir des tickets et de
-leurs estimations au démarrage du sprint.
+1. **Créer un sprint** : nom, date de début, date de fin, capacité en points
+   (entier de 1 à 999) et objectif facultatif. Le formulaire propose un nom, une
+   période de deux semaines qui commence après le dernier sprint (ou aujourd'hui)
+   et une capacité égale à la vélocité moyenne, ou 20 points s'il n'y a pas
+   encore de vélocité.
+2. **Planifier** : la vue Sprints affiche le sprint actif, les sprints futurs,
+   puis le Backlog. On y glisse les tickets d'une section à l'autre, ou on utilise
+   le menu « Déplacer vers ». La fenêtre d'un ticket propose aussi un champ
+   « Sprint ».
+3. **Jauge de capacité** : points engagés / capacité, avec « x pts disponibles »,
+   « Capacité atteinte » ou « Dépassement de x pts ».
+4. **Démarrer** un sprint futur : il devient actif et son périmètre de départ
+   (points engagés) est figé ; c'est la base de la ligne idéale.
+5. **Terminer** le sprint actif : un bilan affiche les tickets terminés et non
+   terminés. Les tickets terminés restent dans le sprint. Les autres reviennent au
+   Backlog par défaut, ou vont dans un sprint futur choisi dans la fenêtre. Aucun
+   statut Kanban ne change.
+6. **Burndown en SVG** : points restants (tickets du sprint non « Terminé ») jour
+   par jour, et ligne idéale du périmètre de départ jusqu'à zéro à la fin du sprint.
+7. **Vélocité** : moyenne des points livrés par les trois derniers sprints clôturés.
+8. **Filtre « Sprint actif »** dans le Backlog et le Kanban.
 
-## Critères d’acceptation
+## Règles (dont les trois pièges de l'atelier)
 
-1. Une vue dédiée « Sprints » est accessible depuis TaskFlow et permet de voir
-   les tickets membres, leur statut, les dates et la durée du sprint, ainsi que
-   le burndown lorsque le sprint est planifié.
-2. Dans les formulaires de création et de planification, « Début » et « Durée
-   en semaines » permettent de déterminer « Fin », qui reste toujours visible
-   et non éditable. À chaque saisie ou changement de la date de début ou de la
-   durée, TaskFlow recalcule et affiche immédiatement la date de fin comme la
-   date de début plus (7 × N) - 1 jours calendaires inclusifs, où N est une
-   durée entière positive en semaines. Si la date de début est absente ou si
-   la durée est invalide, « Fin » reste vide et le formulaire fournit un
-   feedback d’attente ou d’erreur adapté à la situation. À la soumission, la
-   date de fin affichée est celle persistée avec le sprint; l’utilisateur n’a
-   pas à la ressaisir. Sans date de début, le sprint reste à planifier et
-   aucune période n’est générée.
-3. Le démarrage d’un sprint planifié le rend actif. Le démarrage est refusé si
-   un autre sprint est déjà actif. Il ne modifie aucun statut de ticket.
-4. L’ajout d’un ticket à un sprint est refusé si le ticket n’est pas estimé ou
-   s’il appartient déjà à un autre sprint. Un ticket accepté n’apparaît que
-   dans un seul sprint à la fois.
-5. Les règles générales des tickets continuent de s’appliquer : un ticket non
-   estimé reste au Backlog, son déplacement hors du Backlog reste refusé,
-   redevenir non estimé le replace au Backlog et le retire de son sprint; les
-   transitions autorisées et les limites WIP restent inchangées.
-6. Terminer un sprint actif ne modifie pas les statuts des tickets. Tout ticket
-   membre dont le statut n’est pas « Terminé » est reporté dans le sprint
-   suivant; un ticket « Terminé » n’est pas reporté.
-7. Le sprint suivant est le sprint planifié qui vient ensuite dans l’ordre des
-   dates. S’il n’en existe aucun, TaskFlow crée automatiquement un sprint
-   suivant et y reporte uniquement les tickets inachevés. Ce sprint créé
-   automatiquement reprend la durée en semaines du sprint terminé, mais n’a pas
-   de dates : il reste à planifier et aucune période n’est générée
-   automatiquement.
-8. La création, la planification, l’activation, la fin et les appartenances
-   persistent après rechargement, sans perte des tickets existants.
-9. Pour un sprint vide, le burndown ne produit pas de valeur invalide : les
-   points restants sont zéro pour chaque jour et les deux lignes restent
-   affichables.
-10. Pendant un sprint actif, l’utilisateur peut ajouter ou retirer des tickets
-    estimés et modifier leur estimation. Ces changements ne modifient pas le
-    statut des tickets; ils affectent les points réels à compter de leur date
-    d’effet, sans recalculer la ligne idéale établie au démarrage.
+- **Capacité atteinte pile** : un ajout qui amène les points engagés exactement à
+  la capacité est accepté ; seul un dépassement est refusé, avec son calcul
+  (« 20 + 1 > 20 pts »). Réestimer un ticket déjà dans le sprint reste possible :
+  la jauge signale alors le dépassement.
+- **Ticket non estimé** : il est refusé dans un sprint. Un ticket qui redevient
+  non estimé retourne au Backlog (statut et sprint).
+- **Sprint d'un seul jour** (début = fin) : accepté. Le burndown compte n + 1
+  points pour n jours (n ≥ 1) : la ligne idéale `départ × (n − i) / n` ne divise
+  jamais par zéro. Un sprint vide (0 point) reste dessinable : l'échelle
+  verticale vaut au moins 1.
+- La fin ne peut pas précéder le début ; les dates doivent exister au calendrier.
+- Démarrer un deuxième sprint pendant qu'un sprint est actif est refusé.
+- Un sprint clôturé ne se modifie plus et ne reçoit plus de ticket ; seul un sprint
+  futur peut être supprimé (ses tickets retournent au Backlog).
+- Les règles des tickets ne changent pas : WIP, Definition of Ready, passage
+  obligé par « En revue ».
 
-## Cas limites
+## Burndown réel
 
-- Une tentative d’ajout d’un ticket non estimé ou déjà membre d’un sprint est
-  refusée sans changer son appartenance.
-- Une tentative de démarrer un deuxième sprint pendant qu’un sprint est actif
-  est refusée; le sprint déjà actif et les statuts de tickets restent inchangés.
-- À la fin d’un sprint, seuls ses tickets non « Terminé » sont reportés; les
-  tickets terminés n’entrent pas dans le sprint suivant.
-- Si aucun sprint suivant n’est planifié, le sprint créé automatiquement
-  contient uniquement les tickets reportés, reprend la durée du sprint terminé
-  et attend la définition de sa période; aucune date n’est inventée.
-- Pour une durée d’une semaine commençant le 02/11/2026, la date de fin affichée
-  et enregistrée est le 08/11/2026; pour deux semaines, elle est le 15/11/2026.
-- Le champ « Fin » est visible et non éditable avant comme après la saisie du
-  début. Sans date de début, il reste vide, un feedback indique que la période
-  attend le début, et le sprint reste à planifier sans période générée.
-- Une durée invalide laisse « Fin » vide et produit un feedback d’erreur; une
-  durée entière positive ou une date de début modifiée met immédiatement à
-  jour la date affichée. La date affichée est persistée à la soumission sans
-  ressaisie.
-- Un ticket membre redevient non estimé : il est retiré de son sprint et reste
-  au Backlog.
-- Une modification de ticket pendant un sprint actif affecte les points réels
-  à compter du jour de cette modification, mais ne change pas la ligne idéale.
-- Les règles WIP continuent de s’appliquer aux déplacements de tickets dans le
-  Kanban; le report d’un sprint ne constitue pas un déplacement de statut.
+À chaque changement, TaskFlow enregistre pour le sprint actif les points restants
+du jour (`releves`). Un jour sans relevé reprend la valeur de la veille. Le jour
+courant est toujours calculé en direct. À la clôture, le dernier relevé est figé.
+
+## Persistance et compatibilité
+
+La sauvegarde passe en version 4 : `{ version: 4, tickets, interface, journal,
+sprints }`. Les sauvegardes v1 à v3 se chargent toujours. Une sauvegarde v3 qui
+contient des sprints de l'ancien format (`ticketIds`, `dateDebut`, `dateFin`,
+durée en semaines) est convertie : statuts repris, appartenance transférée sur
+`ticket.sprintId`, capacité reprise égale aux points engagés. Un sprint sans
+période valide est écarté.
+
+Les sprints relus sont vérifiés : dates inversées, capacité invalide, identifiant
+en double, deuxième sprint actif, `sprintId` vers un sprint inconnu, ticket non
+estimé dans un sprint ouvert sont écartés ou corrigés, sans écran blanc.
+
+## Auto-tests
+
+T46 à T55 : validation de la création, capacité atteinte pile (T47), ticket non
+estimé (T48), un seul sprint par ticket, un seul sprint actif, clôture, burndown
+d'un sprint d'un jour et d'un sprint vide (T52), burndown réel, sauvegarde et
+migration, sprints trafiqués.
 
 ## Hors périmètre
 
-- Capacité d’équipe ou objectif de points par sprint.
-- Modification automatique des statuts lors du démarrage, de la fin ou du
-  report.
-- Archivage, suppression ou politique de conservation particulière des sprints.
-- Création automatique de dates ou d’une période pour un sprint.
-- Modification des règles de tickets, des statuts, des transitions, du WIP, du
-  Backlog des tickets non estimés, ou des formats d’import/export.
-
-## À clarifier
-
-Aucune décision produit bloquante connue après les clarifications de
-l’utilisateur.
+- Plusieurs sprints actifs en parallèle.
+- Rapports de sprint exportables, capacité par personne.
+- Sprint inscrit dans les exports JSON et CSV des tickets.

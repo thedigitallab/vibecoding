@@ -24,6 +24,11 @@ estimé le replace au Backlog.
   et assigné (« Mes tickets »).
 - **Kanban** : colonnes Backlog, À faire, En cours, En revue et Terminé; cartes
   déplaçables et tableau de bord des points et de l'avancement.
+- **Sprints** : création d'un sprint (nom, dates, capacité en points, objectif),
+  planification par glisser-déposer entre les sprints et le Backlog, jauge de
+  capacité, démarrage, clôture (les tickets non terminés retournent au Backlog ou
+  vont dans un sprint futur), burndown en SVG et vélocité. Détails dans
+  [`spec.md`](spec.md).
 - **Auto-tests** : exécution et affichage des tests fonctionnels intégrés.
 - **Import / Export** : import et export des tickets aux formats JSON et CSV,
   avec rapport de validation des lignes.
@@ -39,14 +44,17 @@ estimé le replace au Backlog.
 - La colonne En cours accepte au plus 3 tickets; En revue en accepte au plus 2.
 - Terminé n'est accessible que depuis En revue.
 - Les déplacements refusés ne modifient pas le ticket et affichent leur motif.
+- Un sprint n'accepte que des tickets estimés, dans la limite de sa capacité
+  (la capacité atteinte pile est acceptée). Un seul sprint est actif à la fois.
+  Démarrer, clôturer ou changer de sprint ne modifie jamais le statut d'un ticket.
 - Les imports valident et normalisent les données, réattribuent les identifiants
   dupliqués et respectent les limites WIP. Une importation est contrôlée avant
   de modifier le backlog.
 
 ## Persistance et compatibilité
 
-Les tickets, l'interface et l'historique sont enregistrés sous la clé
-`taskflow`, dans le format versionné actuel. Les sauvegardes antérieures sont
+Les tickets, l'interface, l'historique et les sprints sont enregistrés sous la
+clé `taskflow`, dans le format versionné actuel (version 4). Les sauvegardes antérieures sont
 migrées; les données invalides sont réparées ou écartées sans empêcher l'écran
 de s'ouvrir. Si le stockage est bloqué ou plein, l'application reste utilisable
 et signale que la sauvegarde a échoué.

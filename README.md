@@ -11,8 +11,9 @@ applicatif, dépendance à installer ni étape de compilation.
   Terminé.
 - **Gestion des tickets** : création, modification, suppression, priorité,
   estimation et assignation.
-- **Sprints** : planification par date de début et durée, calcul automatique de
-  la date de fin, suivi des tickets et burndown.
+- **Sprints** : création avec dates et capacité en points, planification par
+  glisser-déposer depuis le Backlog avec jauge de capacité, démarrage, clôture
+  (le non-terminé revient au Backlog), burndown en SVG et vélocité.
 - **Import et export** des tickets en JSON et CSV.
 - **Préférences** : thème clair ou sombre et profil utilisateur.
 - **Historique** des déplacements avec annulation.
