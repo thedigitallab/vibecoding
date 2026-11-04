@@ -325,21 +325,21 @@
         const source = Array.isArray(liste) ? liste : [];
         const d = definition || {};
         const duree = d.dureeSemaines;
-        const debut = d.dateDebut;
-        const fin = d.dateFin;
+        const debut = d.dateDebut || '';
         if (!Number.isSafeInteger(d.id) || d.id < 1) return { ok: false, erreur: 'Identifiant de sprint invalide.' };
         if (!Number.isSafeInteger(duree) || duree < 1) return { ok: false, erreur: 'La durée doit être un nombre entier de semaines supérieur à zéro.' };
-        if (!dateSprintValide(debut) || !dateSprintValide(fin)) return { ok: false, erreur: 'Choisissez les dates de début et de fin du sprint.' };
-        if (fin !== decalerDateSprint(debut, duree * 7 - 1)) return { ok: false, erreur: 'Les dates ne correspondent pas à la durée du sprint.' };
+        if (debut && !dateSprintValide(debut)) return { ok: false, erreur: 'Choisissez une date de début valide.' };
+        const fin = debut ? decalerDateSprint(debut, duree * 7 - 1) : '';
+        if (debut && !dateSprintValide(fin)) return { ok: false, erreur: 'La période du sprint dépasse les dates prises en charge.' };
         const existant = source.find(s => s.id === d.id);
         if (existant && (!['a_planifier', 'planifie'].includes(existant.statut) || existant.dateDebut || existant.dateFin)) {
             return { ok: false, erreur: 'Ce sprint ne peut plus être planifié.' };
         }
         const sprint = existant
             ? { ...existant, nom: typeof d.nom === 'string' && d.nom.trim() ? d.nom.trim().slice(0, 80) : existant.nom,
-                dureeSemaines: duree, dateDebut: debut, dateFin: fin, statut: 'planifie' }
+                dureeSemaines: duree, dateDebut: debut, dateFin: fin, statut: debut ? 'planifie' : 'a_planifier' }
             : { id: d.id, nom: typeof d.nom === 'string' && d.nom.trim() ? d.nom.trim().slice(0, 80) : `Sprint ${d.id}`,
-                dureeSemaines: duree, dateDebut: debut, dateFin: fin, statut: 'planifie',
+                dureeSemaines: duree, dateDebut: debut, dateFin: fin, statut: debut ? 'planifie' : 'a_planifier',
                 ticketIds: [], instantaneDepart: [], evenements: [], pointsDepart: null, demarreLe: '' };
         const sprints = existant ? source.map(s => s.id === d.id ? sprint : s) : [...source, sprint];
         return { ok: true, sprints };
@@ -1052,9 +1052,8 @@
             <label class="fmt">Durée en semaines
                 <input name="dureeSemaines" id="sprint-duree${suffixe}" type="number" min="1" step="1" value="${duree}" required>
             </label>
-            <label class="fmt">Début <input name="dateDebut" type="date" value="${sprint ? sprint.dateDebut : ''}" required></label>
-            <label class="fmt">Fin <input name="dateFin" type="date" value="${sprint ? sprint.dateFin : ''}" required></label>
-            <button type="submit" class="btn btn-primary">${sprint ? 'Planifier' : 'Créer et planifier'}</button>
+            <label class="fmt">Début <input name="dateDebut" type="date" value="${sprint ? sprint.dateDebut : ''}"></label>
+            <button type="submit" class="btn btn-primary">${sprint ? 'Planifier' : 'Créer / planifier'}</button>
         </form>`;
     }
 
@@ -1107,7 +1106,7 @@
         e.preventDefault();
         const f = e.currentTarget;
         const r = planifierSprint(sprints, { id: prochainIdSprint(), dureeSemaines: Number(f.querySelector('[name="dureeSemaines"]').value),
-            dateDebut: f.querySelector('[name="dateDebut"]').value, dateFin: f.querySelector('[name="dateFin"]').value });
+            dateDebut: f.querySelector('[name="dateDebut"]').value });
         if (!r.ok) return afficherMessage(r.erreur);
         sprints = r.sprints;
         mettreAJourEcran();
@@ -1119,7 +1118,7 @@
         const sprint = sprints.find(s => s.id === id);
         const nom = f.querySelector('[name="nom"]');
         const r = planifierSprint(sprints, { id, dureeSemaines: Number(f.querySelector('[name="dureeSemaines"]').value),
-            dateDebut: f.querySelector('[name="dateDebut"]').value, dateFin: f.querySelector('[name="dateFin"]').value,
+            dateDebut: f.querySelector('[name="dateDebut"]').value,
             nom: nom ? nom.value : sprint && sprint.nom });
         if (!r.ok) return afficherMessage(r.erreur);
         sprints = r.sprints;

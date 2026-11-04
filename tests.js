@@ -391,7 +391,7 @@
 
     // --- Auto-tests sprint (T46 à T55), selon docs/spec.md.
     // Contrat attendu pour Dev-JS :
-    // planifierSprint(sprints, { id, dureeSemaines, dateDebut, dateFin })
+    // planifierSprint(sprints, { id, dureeSemaines, dateDebut }) ; dateFin est calculée
     // demarrerSprint(sprints, sprintId, tickets, dateEffet)
     // ajouterTicketSprint(sprints, tickets, sprintId, ticketId, dateEffet)
     // mettreAJourTacheSprint(sprints, tickets, ticketId, champs, dateEffet)
@@ -486,18 +486,23 @@
                 ? 'Le bouton ouvre la vue dédiée, avec un titre « Sprints » et une action de planification.'
                 : `Vue « Sprints » ouverte : ${vueOuverte} · contenu : ${contenu.slice(0, 180)}` };
         } },
-        { code: 'T47', nom: 'PO Sprint 2 · Durée calendaire exacte et dates obligatoires', run: () => {
+        { code: 'T47', nom: 'PO Sprint 2 · Fin calculée inclusive et sprint sans début à planifier', run: () => {
             const planifier = exigerFonctionSprint('planifierSprint');
             const valides = [
-                planifier([], { id: 4601, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine }),
-                planifier([], { id: 4602, dureeSemaines: 2, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finDeuxSemaines })
+                planifier([], { id: 4601, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut }),
+                planifier([], { id: 4602, dureeSemaines: 2, dateDebut: DATE_SPRINT_TEST.debut })
             ];
-            const invalide = planifier([], { id: 4603, dureeSemaines: 2, dateDebut: DATE_SPRINT_TEST.debut, dateFin: '2026-11-14' });
-            const sansDates = planifier([], { id: 4604, dureeSemaines: 1, dateDebut: '', dateFin: '' });
-            const ok = valides.every(r => r.ok) && !invalide.ok && !sansDates.ok
+            const sansDebut = planifier([], { id: 4603, dureeSemaines: 1, dateDebut: '' });
+            const dureeNulle = planifier([], { id: 4604, dureeSemaines: 0, dateDebut: DATE_SPRINT_TEST.debut });
+            const dureeFractionnaire = planifier([], { id: 4605, dureeSemaines: 1.5, dateDebut: DATE_SPRINT_TEST.debut });
+            const ok = valides.every(r => r.ok) && sansDebut.ok
                 && valides[0].sprints[0].dateFin === DATE_SPRINT_TEST.finSemaine
-                && valides[1].sprints[0].dateFin === DATE_SPRINT_TEST.finDeuxSemaines;
-            return { ok, detail: `1 semaine → ${valides[0].ok ? 'acceptée' : 'refusée'} (02–08/11) · 2 semaines → ${valides[1].ok ? 'acceptée' : 'refusée'} (02–15/11)\nPériode de 13 jours → ${invalide.ok ? 'acceptée à tort' : 'refusée'} · sans dates → ${sansDates.ok ? 'accepté à tort' : 'non planifié/refusé'}` };
+                && valides[1].sprints[0].dateFin === DATE_SPRINT_TEST.finDeuxSemaines
+                && valides.every(r => r.sprints[0].dateDebut === DATE_SPRINT_TEST.debut)
+                && sansDebut.sprints[0].statut === 'a_planifier'
+                && !sansDebut.sprints[0].dateDebut && !sansDebut.sprints[0].dateFin
+                && !dureeNulle.ok && !dureeFractionnaire.ok;
+            return { ok, detail: `Sans dateFin en entrée : 1 semaine → ${valides[0].ok ? valides[0].sprints[0].dateFin : valides[0].erreur || 'refusée'} · 2 semaines → ${valides[1].ok ? valides[1].sprints[0].dateFin : valides[1].erreur || 'refusée'}\nSans début : ${sansDebut.ok ? `${sansDebut.sprints[0].statut}, sans période` : sansDebut.erreur} · durées 0 et 1,5 refusées : ${!dureeNulle.ok && !dureeFractionnaire.ok}` };
         } },
         { code: 'T48', nom: 'PO Sprint 3 · Un seul sprint actif, démarrage sans changer les statuts', run: () => {
             const demarrer = exigerFonctionSprint('demarrerSprint');
@@ -594,15 +599,17 @@
         } },
         { code: 'T53', nom: 'PO Sprint 8 · Tickets, sprints et appartenances persistent au rechargement', run: () => {
             const stockage = fauxStockage();
-            const sprints = sprintsPlanifiesPourTest({ id: 5301, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut, dateFin: DATE_SPRINT_TEST.finSemaine });
+            const sprints = sprintsPlanifiesPourTest({ id: 5301, dureeSemaines: 1, dateDebut: DATE_SPRINT_TEST.debut });
             const tickets = TICKETS_INITIAUX.map(t => ({ ...t }));
             const ajout = exigerMutationSprint(exigerFonctionSprint('ajouterTicketSprint')(sprints, tickets, 5301, 1, DATE_SPRINT_TEST.debut), 'Ajout au sprint');
             const enregistre = sauvegarder({ tickets, sprints: ajout.sprints, interface: lireInterface(null), journal: [] }, stockage);
             const recharge = charger(stockage);
             const ok = enregistre && exporterJSON(recharge.tickets) === exporterJSON(tickets)
                 && exporterJSON(recharge.sprints) === exporterJSON(ajout.sprints)
+                && recharge.sprints[0].dateDebut === DATE_SPRINT_TEST.debut
+                && recharge.sprints[0].dateFin === DATE_SPRINT_TEST.finSemaine
                 && recharge.tickets.length === TICKETS_INITIAUX.length;
-            return { ok, detail: `Sauvegarde : ${enregistre} · tickets rechargés : ${recharge.tickets.length}/${TICKETS_INITIAUX.length} · sprints rechargés : ${Array.isArray(recharge.sprints) ? recharge.sprints.length : 'absents'}` };
+            return { ok, detail: `Sauvegarde : ${enregistre} · tickets rechargés : ${recharge.tickets.length}/${TICKETS_INITIAUX.length} · dates rechargées : ${recharge.sprints[0] ? `${recharge.sprints[0].dateDebut} – ${recharge.sprints[0].dateFin}` : 'sprint absent'} · sprints : ${Array.isArray(recharge.sprints) ? recharge.sprints.length : 'absents'}` };
         } },
         { code: 'T54', nom: 'PO Sprint 9 · Burndown vide : sept jours à zéro, valeurs finies', run: () => {
             const demarrer = exigerFonctionSprint('demarrerSprint');
@@ -655,6 +662,32 @@
             return { ok, detail: ecrituresNavigationAvantChargement === null
                 ? 'Aucune preuve isolée du clic de T46 avant le chargement.'
                 : `${ecrituresNavigationAvantChargement} écriture(s) interceptée(s) pendant le premier clic et le retour de T46 avant charger()` };
+        } },
+        { code: 'T57', nom: 'PO Sprint 2 · Le formulaire demande début et durée, puis affiche la fin calculée', run: () => {
+            const vueAvant = currentView;
+            const essai = avecStockageNavigateurIsole(() => {
+                try {
+                    setView('sprints');
+                    const form = document.querySelector('#viewContainer form.io-actions');
+                    if (!form) return { erreur: 'Formulaire de planification absent.' };
+                    const champFin = form.querySelector('[name="dateFin"]');
+                    if (champFin) return { erreur: 'Le formulaire demande encore une saisie de date de fin.' };
+                    const champDebut = form.querySelector('[name="dateDebut"]');
+                    const champDuree = form.querySelector('[name="dureeSemaines"]');
+                    if (!champDebut || !champDuree) return { erreur: 'Champ de début ou de durée absent.' };
+                    champDebut.value = DATE_SPRINT_TEST.debut;
+                    champDuree.value = '1';
+                    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                    const contenu = document.getElementById('viewContainer').innerText;
+                    return { contenu };
+                } finally {
+                    setView(vueAvant);
+                }
+            });
+            const { erreur, contenu } = essai.resultat;
+            const afficheDebutEtFin = contenu && /02\/11\/26\s*[–-]\s*08\/11\/26/.test(contenu);
+            const ok = !erreur && afficheDebutEtFin;
+            return { ok, detail: erreur || `Période affichée : ${afficheDebutEtFin ? '02/11/26 – 08/11/26' : 'non trouvée'}` };
         } }
     );
 

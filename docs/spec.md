@@ -10,9 +10,10 @@ statuts lors du démarrage ou de la fin d’un sprint.
 ## Résultat attendu
 
 Une vue dédiée permet de gérer les sprints planifiés et actif, de leur associer
-des tickets estimés et de consulter leur avancement. La durée est exprimée en
-semaines calendaires et les dates sont choisies lors de la planification. Un
-seul sprint peut être actif à la fois pour le projet.
+des tickets estimés et de consulter leur avancement. Lors de la planification,
+l’utilisateur choisit une date de début et une durée en semaines calendaires;
+TaskFlow calcule automatiquement la date de fin. Un seul sprint peut être actif
+à la fois pour le projet.
 
 Chaque ticket ne peut être membre que d’un seul sprint à la fois. Seuls les
 tickets estimés (1, 2, 3, 5, 8 ou 13 points) peuvent être ajoutés. Cette
@@ -32,11 +33,12 @@ leurs estimations au démarrage du sprint.
 1. Une vue dédiée « Sprints » est accessible depuis TaskFlow et permet de voir
    les tickets membres, leur statut, les dates et la durée du sprint, ainsi que
    le burndown lorsque le sprint est planifié.
-2. L’utilisateur peut planifier un sprint en choisissant sa durée en semaines
-   calendaires et ses dates. N semaines correspondent à 7 × N jours calendaires
-   inclusifs : la date de fin est la date de début plus (7 × N) - 1 jours. Une
-   période dont les dates ne correspondent pas à la durée est refusée. Une
-   période sans date choisie n’est pas considérée comme planifiée.
+2. Pour créer ou planifier un sprint, l’utilisateur choisit une date de début
+   et une durée entière positive en semaines calendaires. TaskFlow calcule la
+   date de fin comme la date de début plus (7 × N) - 1 jours calendaires
+   inclusifs, l’affiche dans la période du sprint et la persiste avec celui-ci.
+   Le formulaire ne propose aucun champ de date de fin à saisir. Sans date de
+   début, le sprint reste à planifier et aucune période n’est générée.
 3. Le démarrage d’un sprint planifié le rend actif. Le démarrage est refusé si
    un autre sprint est déjà actif. Il ne modifie aucun statut de ticket.
 4. L’ajout d’un ticket à un sprint est refusé si le ticket n’est pas estimé ou
@@ -76,8 +78,10 @@ leurs estimations au démarrage du sprint.
 - Si aucun sprint suivant n’est planifié, le sprint créé automatiquement
   contient uniquement les tickets reportés, reprend la durée du sprint terminé
   et attend la définition de sa période; aucune date n’est inventée.
-- La durée et les dates sélectionnées ne correspondent pas : la planification
-  est refusée.
+- Pour une durée d’une semaine commençant le 02/11/2026, la date de fin affichée
+  et enregistrée est le 08/11/2026; pour deux semaines, elle est le 15/11/2026.
+- Sans date de début, le sprint reste à planifier; la date de fin n’est pas
+  demandée ni générée.
 - Un ticket membre redevient non estimé : il est retiré de son sprint et reste
   au Backlog.
 - Une modification de ticket pendant un sprint actif affecte les points réels
